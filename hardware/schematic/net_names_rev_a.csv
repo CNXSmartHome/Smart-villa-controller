@@ -1,0 +1,14 @@
+Net Name,Type,Description
+VIN_24V,Power,Raw 12-24V DC input
+VIN_PROTECTED,Power,After fuse/reverse/TVS protection
+SENSOR_V+,Power,Protected sensor supply
++5V,Power,5V rail
++3V3,Power,3.3V rail
+GND,Power,System ground
+RS485_1_A,Signal,RS485 port 1 A
+RS485_1_B,Signal,RS485 port 1 B
+RS485_2_A,Signal,RS485 port 2 A
+RS485_2_B,Signal,RS485 port 2 B
+RELAY1_COM,Contact,Relay 1 common
+RELAY1_NO,Contact,Relay 1 normally open
+RELAY1_NC,Contact,Relay 1 normally closed
