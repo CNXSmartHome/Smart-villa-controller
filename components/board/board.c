@@ -102,3 +102,23 @@ gpio_num_t board_dinput_gpio(uint8_t index)
 {
     return (index < BOARD_DINPUT_COUNT) ? s_dinput_gpio[index] : GPIO_NUM_NC;
 }
+
+bool board_config_button_held(void)
+{
+    const gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << BOARD_GPIO_BTN_CONFIG),
+        .mode         = GPIO_MODE_INPUT,
+        .pull_up_en   = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type    = GPIO_INTR_DISABLE,
+    };
+    if (gpio_config(&cfg) != ESP_OK) {
+        return false;   /* fail closed: no button => no provisioning shortcut */
+    }
+    /* Active-low: a held button reads 0. */
+    bool held = (gpio_get_level(BOARD_GPIO_BTN_CONFIG) == 0);
+    if (held) {
+        ESP_LOGW(TAG, "config button held at boot");
+    }
+    return held;
+}

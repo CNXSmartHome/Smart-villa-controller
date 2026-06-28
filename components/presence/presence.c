@@ -4,10 +4,16 @@
  */
 #include "presence.h"
 #include "eventbus.h"
+#include "health.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "presence";
+
+/* Sane polling bounds: fast enough to feel responsive, slow enough not to flood
+   the RS485 bus or starve other tasks. */
+#define PRESENCE_POLL_MIN_MS 50
+#define PRESENCE_POLL_MAX_MS 10000
 
 static presence_cfg_t           s_cfg;
 static volatile presence_state_t s_state = PRESENCE_UNKNOWN;
@@ -55,6 +61,8 @@ static void presence_task(void *arg)
             stale_signaled = false;
             publish_state(raw >= s_cfg.present_min ? PRESENCE_PRESENT
                                                    : PRESENCE_ABSENT);
+            /* First successful poll => presence subsystem is healthy. */
+            health_report(HEALTH_CHK_PRESENCE_RAN, true);
         } else if (!stale_signaled &&
                    (svc_now_ms() - last_ok) > s_cfg.stale_ms) {
             stale_signaled = true;
@@ -64,6 +72,10 @@ static void presence_task(void *arg)
             (void)eventbus_post(&ev, 20);
             ESP_LOGW(TAG, "sensor %u stale (last read 0x%x)",
                      s_cfg.sensor_id, (int)rc);
+            /* Degraded cleanly: the gate still counts this as "ran" so a missing
+               sensor at the factory does not block a valid OTA, while the
+               control engine independently applies failsafe. */
+            health_report(HEALTH_CHK_PRESENCE_RAN, true);
         }
         /* Absolute-time delay keeps the cadence steady and watchdog-friendly. */
         vTaskDelayUntil(&wake, period);
@@ -77,8 +89,14 @@ svc_err_t presence_start(const presence_cfg_t *cfg)
         return SVC_OK;
     }
     s_cfg = *cfg;
-    if (s_cfg.poll_ms == 0)  s_cfg.poll_ms = 500;
+    /* Clamp poll period to a sane band and guarantee >= 1 scheduler tick so the
+       task can never spin or be starved (P8). */
+    uint32_t tick_ms = portTICK_PERIOD_MS ? portTICK_PERIOD_MS : 1;
+    if (s_cfg.poll_ms < PRESENCE_POLL_MIN_MS) s_cfg.poll_ms = PRESENCE_POLL_MIN_MS;
+    if (s_cfg.poll_ms > PRESENCE_POLL_MAX_MS) s_cfg.poll_ms = PRESENCE_POLL_MAX_MS;
+    if (s_cfg.poll_ms < tick_ms)              s_cfg.poll_ms = (uint16_t)tick_ms;
     if (s_cfg.stale_ms == 0) s_cfg.stale_ms = 5000;
+    if (s_cfg.stale_ms < s_cfg.poll_ms * 2)  s_cfg.stale_ms = s_cfg.poll_ms * 2;
 
     if (xTaskCreatePinnedToCore(presence_task, "presence", 3072, NULL, 4,
                                 &s_task, 1) != pdPASS) {

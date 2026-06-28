@@ -15,5 +15,11 @@ dependencies.lock
 # Python
 __pycache__/
 *.pyc
-.DS_Store
+
+# Host test build artifacts
+tests/host/host_tests
+*.dSYM/
+*.patch
 build/
+.DS_Store
+*.patch

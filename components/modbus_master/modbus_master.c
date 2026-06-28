@@ -62,7 +62,10 @@ static svc_err_t mb_transact(mb_master_t *m, uint8_t *adu, size_t pdu_len,
             ESP_LOGW(TAG, "txn attempt %d -> 0x%x", attempt, (int)rc);
             continue;
         }
-        if (n < 4) {                    /* addr + fc + crc minimum */
+        /* Smallest legal RTU response is an exception: addr+fc+code+crc = 5.
+           Anything shorter is a malformed/short frame. */
+        if (n < 5) {
+            ESP_LOGW(TAG, "short frame (%u bytes)", (unsigned)n);
             rc = SVC_ERR_CRC;
             continue;
         }
@@ -97,15 +100,29 @@ static svc_err_t mb_read_regs(mb_master_t *m, uint8_t fc, uint8_t slave,
     size_t rlen = 0;
     SVC_RETURN_ON_ERR(mb_transact(m, adu, 6, resp, sizeof(resp), &rlen));
 
+    /* Address must echo. (rlen >= 5 is guaranteed by mb_transact.) */
     if (resp[0] != slave) {
+        ESP_LOGW(TAG, "addr mismatch (got %u want %u)", resp[0], slave);
         return SVC_ERR_MODBUS_EXC;
     }
+    /* Exception frame: exact length 5 (addr+fc+code+crc). */
     if (resp[1] & MB_EXC_FLAG) {
+        if (rlen != 5) {
+            return SVC_ERR_CRC;
+        }
         ESP_LOGW(TAG, "exception code 0x%02x", resp[2]);
         return SVC_ERR_MODBUS_EXC;
     }
+    /* Normal frame: function must match, byte count must equal count*2, and the
+       total length must be exactly addr+fc+bc + count*2 + crc = 5 + count*2. */
+    if (resp[1] != fc) {
+        return SVC_ERR_MODBUS_EXC;
+    }
     uint8_t byte_count = resp[2];
-    if (resp[1] != fc || byte_count != count * 2) {
+    size_t expected = 5u + (size_t)count * 2u;
+    if (byte_count != count * 2 || rlen != expected) {
+        ESP_LOGW(TAG, "bad read len (bc=%u rlen=%u exp=%u)",
+                 byte_count, (unsigned)rlen, (unsigned)expected);
         return SVC_ERR_MODBUS_EXC;
     }
     for (uint16_t i = 0; i < count; ++i) {
@@ -152,11 +169,20 @@ svc_err_t mb_write_single(mb_master_t *m, uint8_t slave, uint16_t addr,
     size_t rlen = 0;
     SVC_RETURN_ON_ERR(mb_transact(m, adu, 6, resp, sizeof(resp), &rlen));
 
-    if (resp[1] & MB_EXC_FLAG) {
+    if (resp[0] != slave) {
         return SVC_ERR_MODBUS_EXC;
     }
-    /* Echo of address+value confirms the write. */
-    if (resp[0] != slave || resp[1] != MB_FC_WRITE_SINGLE) {
+    if (resp[1] & MB_EXC_FLAG) {
+        if (rlen != 5) {
+            return SVC_ERR_CRC;
+        }
+        return SVC_ERR_MODBUS_EXC;
+    }
+    /* Normal FC06 reply echoes addr+value: addr+fc+reg(2)+val(2)+crc = 8 bytes.
+       Verify slave, function, register address AND value all echo exactly. */
+    if (rlen != 8 || resp[1] != MB_FC_WRITE_SINGLE ||
+        get_u16(&resp[2]) != addr || get_u16(&resp[4]) != value) {
+        ESP_LOGW(TAG, "write-single echo mismatch (rlen=%u)", (unsigned)rlen);
         return SVC_ERR_MODBUS_EXC;
     }
     return SVC_OK;
@@ -184,10 +210,20 @@ svc_err_t mb_write_multiple(mb_master_t *m, uint8_t slave, uint16_t addr,
     size_t rlen = 0;
     SVC_RETURN_ON_ERR(mb_transact(m, adu, pdu_len, resp, sizeof(resp), &rlen));
 
-    if (resp[1] & MB_EXC_FLAG) {
+    if (resp[0] != slave) {
         return SVC_ERR_MODBUS_EXC;
     }
-    if (resp[0] != slave || resp[1] != MB_FC_WRITE_MULTIPLE) {
+    if (resp[1] & MB_EXC_FLAG) {
+        if (rlen != 5) {
+            return SVC_ERR_CRC;
+        }
+        return SVC_ERR_MODBUS_EXC;
+    }
+    /* Normal FC16 reply echoes addr+count: addr+fc+reg(2)+cnt(2)+crc = 8 bytes.
+       Verify slave, function, starting address AND register count echo exactly. */
+    if (rlen != 8 || resp[1] != MB_FC_WRITE_MULTIPLE ||
+        get_u16(&resp[2]) != addr || get_u16(&resp[4]) != count) {
+        ESP_LOGW(TAG, "write-multi echo mismatch (rlen=%u)", (unsigned)rlen);
         return SVC_ERR_MODBUS_EXC;
     }
     return SVC_OK;

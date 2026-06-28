@@ -96,13 +96,28 @@ svc_err_t dinput_start(const dinput_cfg_t *cfg)
         ESP_LOGE(TAG, "isr service install failed: 0x%x", (int)isr_rc);
         return isr_rc;
     }
+    /* Track how many handlers we add so we can unwind on any later failure. */
+    uint8_t added = 0;
     for (uint8_t ch = 0; ch < BOARD_DINPUT_COUNT; ++ch) {
-        SVC_RETURN_ON_ERR(gpio_isr_handler_add(board_dinput_gpio(ch),
-                                               dinput_isr, NULL));
+        esp_err_t rc = gpio_isr_handler_add(board_dinput_gpio(ch),
+                                            dinput_isr, NULL);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "isr add ch%u failed: 0x%x; unwinding", ch, (int)rc);
+            for (uint8_t j = 0; j < added; ++j) {
+                gpio_isr_handler_remove(board_dinput_gpio(j));
+            }
+            return rc;
+        }
+        added++;
     }
 
     if (xTaskCreatePinnedToCore(dinput_task, "dinput", 3072, NULL, 5,
                                 &s_task, 1) != pdPASS) {
+        /* Task did not start: remove every handler we installed above. */
+        for (uint8_t ch = 0; ch < BOARD_DINPUT_COUNT; ++ch) {
+            gpio_isr_handler_remove(board_dinput_gpio(ch));
+        }
+        s_task = NULL;
         return ESP_ERR_NO_MEM;
     }
     s_started = true;

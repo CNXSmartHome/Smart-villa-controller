@@ -71,6 +71,14 @@ svc_err_t eventbus_post_isr(const svc_event_t *ev, bool *hp_task_woken);
  */
 svc_err_t eventbus_receive(svc_event_t *out, uint32_t timeout_ms);
 
+/**
+ * @brief Number of events dropped because the queue was full (task + ISR posts).
+ *
+ * A non-zero and growing count indicates a consumer that cannot keep up or a
+ * misbehaving producer; it is surfaced in /api/status for field diagnostics.
+ */
+uint32_t eventbus_dropped_count(void);
+
 #ifdef __cplusplus
 }
 #endif

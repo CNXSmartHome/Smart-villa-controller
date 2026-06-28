@@ -31,6 +31,12 @@ extern "C" {
 #define BOARD_GPIO_RELAY_3  GPIO_NUM_7
 
 /* ----- Opto-isolated digital inputs (active-low through opto) ----- */
+/* RELEASE GATE (see docs/RELEASE_GATES.md): GPIO15/16/17 carry secondary boot,
+ * UART0, and (with GPIO19/20) USB/JTAG-adjacent roles on ESP32-S3 modules. Before
+ * tape-out, confirm on the schematic that the opto front-ends present a benign
+ * level at reset (no forced LOW that alters boot mode) and do not contend with
+ * USB-Serial-JTAG bring-up. Reassign here if review fails — inputs are the
+ * easiest signals to move. */
 #define BOARD_GPIO_DIN_0    GPIO_NUM_15
 #define BOARD_GPIO_DIN_1    GPIO_NUM_16
 #define BOARD_GPIO_DIN_2    GPIO_NUM_17
@@ -92,6 +98,17 @@ gpio_num_t board_relay_gpio(uint8_t index);
 
 /** @brief Map a digital-input index [0..BOARD_DINPUT_COUNT) to its GPIO. */
 gpio_num_t board_dinput_gpio(uint8_t index);
+
+/**
+ * @brief Read whether the physical Config button is currently held.
+ *
+ * Configures the config-button GPIO as an input with pull-up and samples it.
+ * Intended to be called early in boot (before button_start) to decide whether
+ * to enter provisioning mode. The button is active-low.
+ *
+ * @return true if the button is asserted (held), false otherwise.
+ */
+bool board_config_button_held(void);
 
 #ifdef __cplusplus
 }

@@ -23,6 +23,7 @@
 #include "control.h"
 #include "netmgr.h"
 #include "webui.h"
+#include "health.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,10 +32,16 @@
 
 static const char *TAG = "app";
 
+/* OTA validation gating (P3): mark the image valid only after health checks
+   pass, never on a fixed timer. */
+#define OTA_GATE_TIMEOUT_MS 30000  /* give up waiting for health after this */
+#define WDT_STABLE_MS        8000  /* uptime with control alive => wdt stable */
+
 /* Long-lived singletons that must outlive app_main; kept static (no heap). */
 static svc_config_t  s_config;
 static rs485_handle_t s_rs485a;
 static mb_master_t    s_mb_a;
+static bool          s_boot_button_held;   /* config button sampled at boot */
 
 static void log_banner(void)
 {
@@ -67,6 +74,8 @@ static svc_err_t bringup_core(void)
         rcfg.channel[i].safe_on     = s_config.relay_safe_on[i];
     }
     SVC_RETURN_ON_ERR(relay_init(&rcfg));
+    /* Relay safe state has been applied by relay_init() -> health check passes. */
+    health_report(HEALTH_CHK_RELAY_SAFE, true);
 
     /* Digital inputs. */
     dinput_cfg_t dcfg = { .debounce_ms = s_config.din_debounce_ms,
@@ -106,6 +115,11 @@ static void bringup_optional(void)
     if (rc != SVC_OK) {
         ESP_LOGW(TAG, "netmgr_start: 0x%x", (int)rc);
     }
+    /* Tell the Web UI whether the operator is physically present (config button
+       held at boot) so first-time provisioning can be gated to an explicit mode
+       rather than ambient LAN. Must be set before webui_start(). */
+    webui_set_provisioning_button(s_boot_button_held);
+
     /* Start the Web UI regardless; it binds the loopback/AP stack when present.
        On a standalone unit with no network it simply has no reachable clients. */
     rc = webui_start(&s_config);
@@ -114,25 +128,79 @@ static void bringup_optional(void)
     }
 }
 
-/** Confirm the freshly-booted OTA image so the bootloader keeps it. */
-static void confirm_ota_image(void)
+/**
+ * @brief Validate the running OTA image ONLY after explicit health checks pass.
+ *
+ * Replaces the old fixed 5-second timer. We poll the health gate until either it
+ * is satisfied (then mark the image valid) or a deadline elapses / a fault is
+ * latched (then leave the image unconfirmed so the bootloader rolls back on the
+ * next boot if this was a freshly-flashed OTA image).
+ *
+ * Mandatory checks (see health.h): control task alive, presence ran or degraded
+ * cleanly, relay safe state applied, network stack settled, watchdog stable,
+ * and no boot fault latched.
+ */
+static void validate_image_when_healthy(void)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t st;
-    if (esp_ota_get_state_partition(running, &st) == ESP_OK &&
-        st == ESP_OTA_IMG_PENDING_VERIFY) {
-        ESP_LOGI(TAG, "self-test passed, marking OTA image valid");
-        esp_ota_mark_app_valid_cancel_rollback();
+    bool pending = (esp_ota_get_state_partition(running, &st) == ESP_OK &&
+                    st == ESP_OTA_IMG_PENDING_VERIFY);
+
+    uint32_t start = svc_now_ms();
+    bool wdt_marked = false;
+
+    while ((svc_now_ms() - start) < OTA_GATE_TIMEOUT_MS) {
+        health_report_t hr;
+        health_get(&hr);
+
+        if (hr.fault_latched) {
+            ESP_LOGE(TAG, "fault latched (%s); NOT validating image",
+                     hr.fault_reason ? hr.fault_reason : "?");
+            indicator_set(IND_FAULT);
+            return;
+        }
+        /* Watchdog considered stable once the control task has been alive for a
+           sustained window without a panic bringing us down. */
+        if (!wdt_marked && hr.check[HEALTH_CHK_CONTROL_ALIVE] &&
+            (svc_now_ms() - start) >= WDT_STABLE_MS) {
+            health_report(HEALTH_CHK_WDT_STABLE, true);
+            wdt_marked = true;
+        }
+        if (health_ota_gate_ok()) {
+            if (pending) {
+                ESP_LOGI(TAG, "all health checks passed; marking OTA image valid");
+                esp_ota_mark_app_valid_cancel_rollback();
+            } else {
+                ESP_LOGI(TAG, "all health checks passed (not a pending OTA image)");
+            }
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+
+    if (pending) {
+        ESP_LOGE(TAG, "health gate not satisfied in %ums; leaving image "
+                 "UNCONFIRMED (bootloader will roll back)", OTA_GATE_TIMEOUT_MS);
+    } else {
+        ESP_LOGW(TAG, "health gate not satisfied within boot window");
     }
 }
 
 void app_main(void)
 {
     log_banner();
+    health_init();
+
+    /* Sample the config button as early as possible (before any driver
+       reconfigures the pin) to decide the provisioning path. */
+    s_boot_button_held = board_config_button_held();
 
     svc_err_t rc = bringup_core();
     if (rc != SVC_OK) {
-        /* Core failed: signal fault and reboot rather than run half-initialized. */
+        /* Core failed: latch a fault, signal it, and reboot rather than run
+           half-initialized (the unconfirmed image will roll back). */
+        health_latch_fault("core bring-up failed");
         ESP_LOGE(TAG, "core bring-up failed: %s", svc_err_to_name(rc));
         indicator_set(IND_FAULT);
         indicator_beep(800, 200, 5);
@@ -142,9 +210,8 @@ void app_main(void)
 
     bringup_optional();
 
-    /* Boot self-test window, then validate the running image for OTA rollback. */
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    confirm_ota_image();
+    /* Validate the image strictly on health, not on a timer. */
+    validate_image_when_healthy();
 
     ESP_LOGI(TAG, "boot complete; control engine running");
     /* app_main returns; all work continues in the spawned tasks. */

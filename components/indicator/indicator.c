@@ -142,20 +142,40 @@ svc_err_t indicator_start(void)
     if (s_started) {
         return SVC_OK;
     }
+    /* LED first. If the buzzer fails to init afterwards, the LED (an RMT device)
+       must be released — otherwise a partial init leaks the RMT channel. */
     SVC_RETURN_ON_ERR(led_init());
-    SVC_RETURN_ON_ERR(buzzer_init());
+    if (buzzer_init() != SVC_OK) {
+        ESP_LOGE(TAG, "buzzer init failed after LED; releasing LED");
+        goto fail;
+    }
 
     s_beep_q = xQueueCreate(4, sizeof(beep_cmd_t));
     if (s_beep_q == NULL) {
-        return ESP_ERR_NO_MEM;
+        goto fail;
     }
     if (xTaskCreatePinnedToCore(indicator_task, "indicator", 2560, NULL, 3,
                                 &s_task, 0) != pdPASS) {
-        return ESP_ERR_NO_MEM;
+        goto fail;
     }
     s_started = true;
     ESP_LOGI(TAG, "started");
     return SVC_OK;
+
+fail:
+    /* Unwind everything acquired so a partial init leaves no live resources:
+       beep queue, LED RMT device, and the buzzer LEDC output. */
+    if (s_beep_q != NULL) {
+        vQueueDelete(s_beep_q);
+        s_beep_q = NULL;
+    }
+    if (s_led != NULL) {
+        led_strip_del(s_led);
+        s_led = NULL;
+    }
+    ledc_stop(BUZZER_LEDC_MODE, BUZZER_LEDC_CH, 0);
+    ESP_LOGE(TAG, "indicator init failed; resources released");
+    return ESP_ERR_NO_MEM;
 }
 
 svc_err_t indicator_set(indicator_pattern_t pattern)

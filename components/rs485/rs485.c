@@ -15,6 +15,9 @@ static const char *TAG = "rs485";
 #define RS485_TX_BUF   256
 /* Idle gap (in symbol times) that marks end-of-frame in RS485 mode. */
 #define RS485_RX_TOUT_SYMBOLS 3
+/* Extra margin added to the per-transaction timeout when waiting for the bus
+   mutex, so a legitimately long in-flight transaction is not falsely rejected. */
+#define RS485_LOCK_EXTRA_MS   250
 
 struct rs485_bus {
     uart_port_t      port;
@@ -70,27 +73,39 @@ svc_err_t rs485_open(const rs485_cfg_t *cfg, rs485_handle_t *out)
         .source_clk = UART_SCLK_DEFAULT,
     };
 
+    /* Install first; on ANY later failure, unwind the driver before returning
+       so a half-configured UART is never left installed (P7: init cleanup). */
     SVC_RETURN_ON_ERR(uart_driver_install(port, RS485_RX_BUF, RS485_TX_BUF,
                                           0, NULL, 0));
-    SVC_RETURN_ON_ERR(uart_param_config(port, &uc));
-    /* DE/RE is driven by the UART RTS line in hardware RS485 half-duplex mode. */
-    SVC_RETURN_ON_ERR(uart_set_pin(port, tx, rx, de, UART_PIN_NO_CHANGE));
-    SVC_RETURN_ON_ERR(uart_set_mode(port, UART_MODE_RS485_HALF_DUPLEX));
-    SVC_RETURN_ON_ERR(uart_set_rx_timeout(port, RS485_RX_TOUT_SYMBOLS));
 
-    b->port = port;
-    b->de_gpio = de;
+    svc_err_t _err_rc;
+    SVC_GOTO_ON_ERR(uart_param_config(port, &uc), fail);
+    /* DE/RE is driven by the UART RTS line in hardware RS485 half-duplex mode. */
+    SVC_GOTO_ON_ERR(uart_set_pin(port, tx, rx, de, UART_PIN_NO_CHANGE), fail);
+    SVC_GOTO_ON_ERR(uart_set_mode(port, UART_MODE_RS485_HALF_DUPLEX), fail);
+    SVC_GOTO_ON_ERR(uart_set_rx_timeout(port, RS485_RX_TOUT_SYMBOLS), fail);
+
     if (b->lock == NULL) {
         b->lock = xSemaphoreCreateMutex();
         if (b->lock == NULL) {
-            return ESP_ERR_NO_MEM;
+            _err_rc = ESP_ERR_NO_MEM;
+            goto fail;
         }
     }
+
+    b->port = port;
+    b->de_gpio = de;
     b->open = true;
     *out = b;
     ESP_LOGI(TAG, "bus %d open (uart%d, %lu baud)", cfg->id, port,
              (unsigned long)cfg->baud);
     return SVC_OK;
+
+fail:
+    uart_driver_delete(port);   /* unwind the only resource acquired so far */
+    ESP_LOGE(TAG, "bus %d open failed (0x%x); driver uninstalled",
+             cfg->id, (int)_err_rc);
+    return _err_rc;
 }
 
 svc_err_t rs485_txn(rs485_handle_t h,
@@ -105,7 +120,13 @@ svc_err_t rs485_txn(rs485_handle_t h,
     }
     *out_len = 0;
 
-    xSemaphoreTake(h->lock, portMAX_DELAY);
+    /* Bounded acquire: never block a control-critical caller forever on the bus
+       mutex. If another transaction holds it beyond the budget, fail explicitly. */
+    uint32_t lock_ms = timeout_ms + RS485_LOCK_EXTRA_MS;
+    if (xSemaphoreTake(h->lock, pdMS_TO_TICKS(lock_ms)) != pdTRUE) {
+        ESP_LOGW(TAG, "bus mutex timeout after %ums", (unsigned)lock_ms);
+        return SVC_ERR_BUS_TIMEOUT;
+    }
     svc_err_t rc = SVC_OK;
 
     /* Discard any stale bytes before starting a fresh transaction. */

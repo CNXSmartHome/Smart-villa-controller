@@ -5,10 +5,12 @@
 #include "eventbus.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include <stdatomic.h>
 
 static const char *TAG = "eventbus";
 
 static QueueHandle_t s_queue;   /* created once in eventbus_init() */
+static atomic_uint   s_dropped; /* events dropped due to a full queue */
 
 svc_err_t eventbus_init(size_t depth)
 {
@@ -37,7 +39,9 @@ svc_err_t eventbus_post(const svc_event_t *ev, uint32_t timeout_ms)
         copy.t_ms = svc_now_ms();
     }
     if (xQueueSend(s_queue, &copy, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
-        ESP_LOGW(TAG, "queue full, dropped event type=%d", (int)copy.type);
+        atomic_fetch_add(&s_dropped, 1);
+        ESP_LOGW(TAG, "queue full, dropped event type=%d (total=%u)",
+                 (int)copy.type, (unsigned)atomic_load(&s_dropped));
         return ESP_ERR_TIMEOUT;
     }
     return SVC_OK;
@@ -53,7 +57,11 @@ svc_err_t eventbus_post_isr(const svc_event_t *ev, bool *hp_task_woken)
     if (hp_task_woken != NULL) {
         *hp_task_woken = (woken == pdTRUE);
     }
-    return (ok == pdTRUE) ? SVC_OK : ESP_FAIL;
+    if (ok != pdTRUE) {
+        atomic_fetch_add(&s_dropped, 1);   /* no logging in ISR context */
+        return ESP_FAIL;
+    }
+    return SVC_OK;
 }
 
 svc_err_t eventbus_receive(svc_event_t *out, uint32_t timeout_ms)
@@ -69,4 +77,9 @@ svc_err_t eventbus_receive(svc_event_t *out, uint32_t timeout_ms)
         return ESP_ERR_TIMEOUT;
     }
     return SVC_OK;
+}
+
+uint32_t eventbus_dropped_count(void)
+{
+    return (uint32_t)atomic_load(&s_dropped);
 }

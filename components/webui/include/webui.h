@@ -33,6 +33,17 @@ svc_err_t webui_start(const svc_config_t *cfg);
 /** @brief Stop the HTTP server and release its socket(s). */
 svc_err_t webui_stop(void);
 
+/**
+ * @brief Tell the Web UI whether the physical config button was held at boot.
+ *
+ * Must be called BEFORE webui_start(). When true, first-time provisioning is
+ * permitted regardless of the post-boot factory window — this is the explicit,
+ * physically-present provisioning path.
+ *
+ * @param held true if the config button was asserted during boot.
+ */
+void webui_set_provisioning_button(bool held);
+
 #ifdef __cplusplus
 }
 #endif
