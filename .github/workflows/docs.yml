@@ -1,0 +1,22 @@
+name: Docs Check
+
+on:
+  push:
+    paths:
+      - "docs/**"
+      - "engineering/**"
+      - "*.md"
+  pull_request:
+
+jobs:
+  docs-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: List docs
+        run: |
+          find docs engineering -maxdepth 3 -type f | sort || true
+      - name: Required docs
+        run: |
+          test -f docs/00_PROJECT_BIBLE.md
+          test -f AI_START_HERE.md

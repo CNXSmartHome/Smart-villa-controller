@@ -1,0 +1,10 @@
+# Smart Villa OS Code Owners
+
+* @CNXSmartHome
+
+/docs/ @CNXSmartHome
+/components/ @CNXSmartHome
+/main/ @CNXSmartHome
+/hardware/ @CNXSmartHome
+/manufacturing/ @CNXSmartHome
+/.github/ @CNXSmartHome

@@ -1,0 +1,23 @@
+name: ESP-IDF Build
+
+on:
+  push:
+    paths:
+      - "components/**"
+      - "main/**"
+      - "CMakeLists.txt"
+      - "sdkconfig.defaults"
+      - "partitions.csv"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build firmware
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py build
