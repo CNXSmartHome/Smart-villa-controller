@@ -1,0 +1,3 @@
+# Managed dependency for the WS2812 status LED driver.
+dependencies:
+  espressif/led_strip: "^2.5.0"
