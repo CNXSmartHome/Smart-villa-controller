@@ -1,0 +1,30 @@
+{
+  "board": {
+    "design_settings": {
+      "defaults": {
+        "board_outline_line_width": 0.1,
+        "copper_line_width": 0.2,
+        "silk_line_width": 0.12,
+        "silk_text_size_h": 1.0,
+        "silk_text_size_v": 1.0
+      },
+      "rules": {
+        "min_clearance": 0.2,
+        "min_track_width": 0.2,
+        "min_via_diameter": 0.6,
+        "min_via_drill": 0.3
+      }
+    }
+  },
+  "meta": {
+    "filename": "svc100_rev_a.kicad_pro",
+    "version": 1
+  },
+  "project": {
+    "files": []
+  },
+  "schematic": {
+    "legacy_lib_dir": "",
+    "legacy_lib_list": []
+  }
+}
