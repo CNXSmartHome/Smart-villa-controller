@@ -1,0 +1,16 @@
+Block,Part Role,Primary Candidate,Second Source / Alternative,Status,Notes
+MCU,Wi-Fi MCU,ESP32-S3-WROOM-1-N16R8,ESP32-S3-WROOM-1-N8R8,Selected,Use Espressif reference design
+Input Protection,PTC/Fuse,Bourns MF-R series,Littelfuse PolySwitch,Open,Size after current budget
+Input Protection,TVS,SMBJ33A / SMBJ36A,SMCJ equivalent,Open,Depends VIN max
+Reverse Protection,PMOS ideal diode,AO3401/other PMOS TBD,Schottky diode prototype,Open,PMOS preferred production
+Buck 5V,24V to 5V,MP1584EN class,TPS54331 / LM2596,Open,2A preferred
+3V3 Regulator,5V to 3.3V,TLV75533/TLV76733 class,AP2112K if current OK,Open,700mA–1A target
+RS485,Transceiver,SP3485,MAX3485 / ADM3485,Selected candidate,3.3V logic
+RS485 Protection,TVS,SM712,Equivalent RS485 TVS,Selected candidate,A/B protection
+Relay,Mechanical relay,Omron/Panasonic/Finder,Hongfa prototype,Open,5V coil preferred
+Relay Driver,Low-side driver,NPN/MOSFET discrete,ULN2003/driver array,Open,Flyback required
+Digital Input,Protection,Resistor + RC + ESD,Optocoupler frontend,Selected topology,Dry contact
+USB,USB ESD,USBLC6-2SC6,Equivalent USB ESD,Candidate,Near USB-C connector
+RTC,RTC IC,DS3231,PCF8563,Candidate,DNP allowed Rev A
+Terminal,Connector,Pluggable terminal 3.5/3.81/5.08mm,Phoenix/Degson/KF,Open,Select by enclosure
+Ethernet,Ethernet option,W5500 for Rev A ease,LAN8720 for production,Open,DNP acceptable
