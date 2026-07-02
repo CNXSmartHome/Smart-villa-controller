@@ -172,6 +172,43 @@ static bool config_migrate(const void *raw, size_t raw_len, svc_config_t *out)
         return true;
     }
 
+    if (ver == 5 && raw_len == sizeof(svc_config_v5_t)) {
+        const svc_config_v5_t *v5 = (const svc_config_v5_t *)raw;
+        /* v6 == v5 + MQTT block. Copy the shared prefix field-by-field (NOT a
+           prefix memcpy: v5's tail padding before crc differs from v6's MQTT
+           block). The MQTT fields stay at the v6 defaults already in *out
+           (disabled, remote control off) — preserving provisioning + everything. */
+        memcpy(out->board_id, v5->board_id, sizeof(out->board_id));
+        memcpy(out->device_name, v5->device_name, sizeof(out->device_name));
+        out->wifi_enabled = v5->wifi_enabled;
+        memcpy(out->wifi_ssid, v5->wifi_ssid, sizeof(out->wifi_ssid));
+        memcpy(out->wifi_pass, v5->wifi_pass, sizeof(out->wifi_pass));
+        out->eth_enabled = v5->eth_enabled;
+        memcpy(out->relay_active_high, v5->relay_active_high,
+               sizeof(out->relay_active_high));
+        memcpy(out->relay_safe_on, v5->relay_safe_on, sizeof(out->relay_safe_on));
+        out->din_active_low = v5->din_active_low;
+        out->din_debounce_ms = v5->din_debounce_ms;
+        out->presence_slave = v5->presence_slave;
+        out->presence_reg = v5->presence_reg;
+        out->presence_present_min = v5->presence_present_min;
+        out->presence_poll_ms = v5->presence_poll_ms;
+        memcpy(out->rule, v5->rule, sizeof(out->rule));
+        out->provisioned = v5->provisioned;
+        out->webui_require_auth = v5->webui_require_auth;
+        memcpy(out->setup_password, v5->setup_password, sizeof(out->setup_password));
+        out->fallback_din_enabled = v5->fallback_din_enabled;
+        out->fallback_din_chan = v5->fallback_din_chan;
+        out->presence_sensor_count = v5->presence_sensor_count;
+        memcpy(out->presence_sensor, v5->presence_sensor,
+               sizeof(out->presence_sensor));
+        out->room_empty_delay_sec = v5->room_empty_delay_sec;
+        out->sensor_fault_policy = v5->sensor_fault_policy;
+        out->version = SVC_CONFIG_VERSION;
+        ESP_LOGW(TAG, "migrated config v5 -> v%u", SVC_CONFIG_VERSION);
+        return true;
+    }
+
     return false;
 }
 

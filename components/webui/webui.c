@@ -464,9 +464,11 @@ static esp_err_t h_config_get(httpd_req_t *req)
                            "{\"error\":\"authentication required\"}");
     }
 
-    /* Secrets (wifi_pass, setup_password) are NEVER returned. Each config string
-       is escaped with svc_json_escape_n bounded by strnlen over the fixed array,
-       so an un-terminated array can never cause an out-of-bounds read. */
+    /* Secrets (wifi_pass, setup_password, mqtt_pass — see webui_settings_is_secret)
+       are NEVER returned. This handler emits an explicit non-secret field list and
+       does not include any MQTT field in Phase 0, so mqtt_pass cannot leak. Each
+       config string is escaped with svc_json_escape_n bounded by strnlen over the
+       fixed array, so an un-terminated array can never cause an out-of-bounds read. */
     char name_esc[SVC_DEVICE_NAME_MAX * 6 + 1];
     char ssid_esc[SVC_WIFI_SSID_MAX * 6 + 1];
     if (svc_json_escape_n(s_cfg.device_name,

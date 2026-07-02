@@ -25,6 +25,15 @@ extern "C" {
 bool webui_settings_is_writable(const char *key);
 
 /**
+ * @brief True if @p key names a secret (wifi_pass, setup_password, mqtt_pass).
+ *
+ * Secrets may be WRITTEN via POST /api/config (body only) but must NEVER be
+ * returned by GET /api/config. h_config_get emits an explicit non-secret field
+ * list; this predicate documents and host-tests the write-only contract.
+ */
+bool webui_settings_is_secret(const char *key);
+
+/**
  * @brief Apply one key=value pair to @p cfg if the key is writable.
  *
  * String values are bounded-copied; numeric values parsed with base-10. Values
@@ -32,7 +41,10 @@ bool webui_settings_is_writable(const char *key);
  * which clamps/normalizes and disables anything unsafe.
  *
  * @return SVC_OK if applied; SVC_ERR_OUT_OF_RANGE if the key is unknown or a
- *         protected/secret field (rejected without modifying @p cfg).
+ *         non-whitelisted (protected) field, rejected without modifying @p cfg.
+ *         NOTE: the writable whitelist intentionally INCLUDES write-only secrets
+ *         (wifi_pass, mqtt_pass) — they are accepted from the body but are never
+ *         returned by GET (see webui_settings_is_secret).
  */
 svc_err_t webui_settings_apply(svc_config_t *cfg, const char *key, const char *value);
 

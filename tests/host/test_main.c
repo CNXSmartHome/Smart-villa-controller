@@ -674,16 +674,17 @@ static void test_config_v5_presence(void)
 static void test_schema_sizes(void)
 {
     printf("[config schema sizes distinct]\n");
-    size_t s[5] = { sizeof(svc_config_v1_t), sizeof(svc_config_v2_t),
+    size_t s[6] = { sizeof(svc_config_v1_t), sizeof(svc_config_v2_t),
                     sizeof(svc_config_v3_t), sizeof(svc_config_v4_t),
-                    sizeof(svc_config_t) /* v5 */ };
+                    sizeof(svc_config_v5_t),
+                    sizeof(svc_config_t) /* v6 */ };
     bool distinct = true;
-    for (int i = 0; i < 5; ++i)
-        for (int j = i + 1; j < 5; ++j)
+    for (int i = 0; i < 6; ++i)
+        for (int j = i + 1; j < 6; ++j)
             if (s[i] == s[j]) distinct = false;
-    CHECK(distinct, "v1..v5 struct sizes are pairwise distinct (migration-safe)");
-    CHECK(sizeof(svc_config_t) > sizeof(svc_config_v4_t),
-          "v5 grew over v4 (added multi-sensor block)");
+    CHECK(distinct, "v1..v6 struct sizes are pairwise distinct (migration-safe)");
+    CHECK(sizeof(svc_config_t) > sizeof(svc_config_v5_t),
+          "v6 grew over v5 (added MQTT block)");
 }
 
 /* ===================== SVC-014 settings write (whitelist/apply) ============= */
@@ -728,6 +729,83 @@ static void test_webui_settings(void)
     svc_config_sanitize(&cfg);
     CHECK(cfg.presence_sensor[0].type == 0, "bad modbus addr -> sensor disabled by sanitize");
     CHECK(cfg.sensor_fault_policy <= 2, "bad fault policy normalized by sanitize");
+
+    /* SVC-015 Phase 0: MQTT installer fields are writable; mqtt_pass is a secret
+       (write-only). Protected fields stay excluded. */
+    CHECK(webui_settings_is_writable("mqtt_host"), "mqtt_host writable");
+    CHECK(webui_settings_is_writable("mqtt_pass"), "mqtt_pass writable (body only)");
+    CHECK(webui_settings_is_writable("mqtt_allow_remote_control"),
+          "mqtt_allow_remote_control writable");
+    CHECK(webui_settings_is_secret("mqtt_pass"), "mqtt_pass is a secret (write-only)");
+    CHECK(webui_settings_is_secret("wifi_pass") &&
+          webui_settings_is_secret("setup_password"), "wifi_pass/setup_password secret");
+    CHECK(!webui_settings_is_secret("mqtt_host") &&
+          !webui_settings_is_secret("device_name"), "non-secret fields not flagged secret");
+    CHECK(webui_settings_apply(&cfg, "mqtt_pass", "s3cr3t") == SVC_OK &&
+          strcmp(cfg.mqtt_pass, "s3cr3t") == 0, "apply mqtt_pass (write path works)");
+    CHECK(webui_settings_apply(&cfg, "mqtt_port", "8883") == SVC_OK &&
+          cfg.mqtt_port == 8883, "apply mqtt_port");
+    /* Out-of-range port must NOT wrap into a valid-looking uint16 (70000->4464). */
+    CHECK(webui_settings_apply(&cfg, "mqtt_port", "70000") == SVC_OK &&
+          cfg.mqtt_port == 0, "apply mqtt_port 70000 -> 0 (no uint16 wrap)");
+    svc_config_sanitize(&cfg);
+    CHECK(cfg.mqtt_port == SVC_MQTT_PORT_DEFAULT,
+          "sanitize: out-of-range port -> default 1883");
+    CHECK(webui_settings_apply(&cfg, "mqtt_allow_remote_control", "1") == SVC_OK &&
+          cfg.mqtt_allow_remote_control == 1, "apply mqtt_allow_remote_control");
+}
+
+/* ===================== SVC-015 Phase 0: MQTT config (v6) ==================== */
+static void test_mqtt_config(void)
+{
+    printf("[mqtt config v6 (SVC-015 phase 0)]\n");
+    svc_config_t cfg; svc_config_defaults(&cfg);
+
+    /* Defaults: MQTT off, remote control off, sane port/timeout. */
+    CHECK(cfg.mqtt_enabled == 0, "mqtt disabled by default");
+    CHECK(cfg.mqtt_allow_remote_control == 0, "remote control disabled by default");
+    CHECK(cfg.mqtt_port == SVC_MQTT_PORT_DEFAULT, "mqtt_port default 1883");
+    CHECK(cfg.mqtt_command_timeout_ms == SVC_MQTT_CMD_TIMEOUT_DEFAULT_MS,
+          "mqtt_command_timeout_ms default 5000");
+
+    /* Sanitizer: port 0 -> default, booleans normalized, timeout defaulted. */
+    cfg.mqtt_port = 0;
+    cfg.mqtt_tls = 7;                 /* non-boolean */
+    cfg.mqtt_enabled = 9;
+    cfg.mqtt_command_timeout_ms = 0;
+    svc_config_sanitize(&cfg);
+    CHECK(cfg.mqtt_port == SVC_MQTT_PORT_DEFAULT, "sanitize: port 0 -> 1883");
+    CHECK(cfg.mqtt_tls == 1 && cfg.mqtt_enabled == 1, "sanitize: booleans normalized");
+    CHECK(cfg.mqtt_command_timeout_ms == SVC_MQTT_CMD_TIMEOUT_DEFAULT_MS,
+          "sanitize: timeout 0 -> 5000");
+
+    /* Topic prefix: empty -> generated svc/<board>/<name>, only safe chars. */
+    cfg.mqtt_topic_prefix[0] = '\0';
+    svc_config_set_board_id(&cfg, "svc100_reva");
+    strncpy(cfg.device_name, "Villa 12", sizeof(cfg.device_name) - 1);
+    svc_config_sanitize(&cfg);
+    CHECK(cfg.mqtt_topic_prefix[0] != '\0', "sanitize: empty prefix generated");
+    bool safe = true;
+    for (size_t i = 0; cfg.mqtt_topic_prefix[i]; ++i) {
+        char c = cfg.mqtt_topic_prefix[i];
+        int ok = (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||
+                 c=='_'||c=='-'||c=='/';
+        if (!ok) safe = false;
+    }
+    CHECK(safe, "prefix has only [a-zA-Z0-9_-/] (space in 'Villa 12' -> '_')");
+
+    /* Wildcards / spaces in an installer prefix are scrubbed. */
+    strncpy(cfg.mqtt_topic_prefix, "svc/villa/#+ x", sizeof(cfg.mqtt_topic_prefix) - 1);
+    svc_config_sanitize(&cfg);
+    CHECK(strchr(cfg.mqtt_topic_prefix, '#') == NULL &&
+          strchr(cfg.mqtt_topic_prefix, '+') == NULL &&
+          strchr(cfg.mqtt_topic_prefix, ' ') == NULL,
+          "sanitize: MQTT wildcards/space scrubbed from prefix");
+
+    /* Strings NUL-terminated even if a raw blob filled them completely. */
+    memset(cfg.mqtt_host, 'a', sizeof(cfg.mqtt_host));
+    svc_config_sanitize(&cfg);
+    CHECK(cfg.mqtt_host[sizeof(cfg.mqtt_host) - 1] == '\0', "sanitize: mqtt_host NUL-terminated");
 }
 
 int main(void)
@@ -754,6 +832,7 @@ int main(void)
     test_config_v5_presence();
     test_schema_sizes();
     test_webui_settings();
+    test_mqtt_config();
     printf("=== %s ===\n", g_fail == 0 ? "ALL PASS" : "FAILURES PRESENT");
     return g_fail == 0 ? 0 : 1;
 }

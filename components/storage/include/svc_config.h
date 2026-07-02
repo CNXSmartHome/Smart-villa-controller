@@ -17,12 +17,22 @@
 extern "C" {
 #endif
 
-#define SVC_CONFIG_VERSION   5
+#define SVC_CONFIG_VERSION   6
 #define SVC_WIFI_SSID_MAX    32
 #define SVC_WIFI_PASS_MAX    64
 #define SVC_DEVICE_NAME_MAX  32
 #define SVC_SETUP_PW_MAX     64
 #define SVC_PRESENCE_MAX_SENSORS 2   /* up to 2 mmWave sensors per controller */
+
+/* ---- MQTT / CNX integration (schema v6, SVC-015). Config-only in Phase 0:
+   no network connection or command subscriber yet; disabled by default. ---- */
+#define SVC_MQTT_HOST_MAX      64
+#define SVC_MQTT_USER_MAX      64
+#define SVC_MQTT_PASS_MAX      64
+#define SVC_MQTT_PREFIX_MAX    64
+#define SVC_MQTT_CLIENT_ID_MAX 48
+#define SVC_MQTT_PORT_DEFAULT      1883
+#define SVC_MQTT_CMD_TIMEOUT_DEFAULT_MS 5000
 
 /** @brief One presence sensor channel (schema v5). type: 0=disabled,1=RS485,2=dry. */
 typedef struct {
@@ -123,6 +133,20 @@ typedef struct {
     presence_sensor_cfg_t presence_sensor[SVC_PRESENCE_MAX_SENSORS];
     uint16_t room_empty_delay_sec;                  /**< both-empty hold before OFF */
     uint8_t  sensor_fault_policy;                   /**< sensor_fault_policy_t (0/1/2) */
+
+    /* ---- MQTT / CNX integration (schema v6, SVC-015) — config-only in Phase 0.
+       Disabled by default; remote control disabled by default. mqtt_pass is
+       write-only (never returned by GET /api/config). ---- */
+    uint8_t  mqtt_enabled;                          /**< 0/1 (default 0)             */
+    char     mqtt_host[SVC_MQTT_HOST_MAX];
+    uint16_t mqtt_port;                             /**< 1..65535 (default 1883)     */
+    char     mqtt_user[SVC_MQTT_USER_MAX];
+    char     mqtt_pass[SVC_MQTT_PASS_MAX];          /**< SECRET: never returned      */
+    char     mqtt_client_id[SVC_MQTT_CLIENT_ID_MAX];
+    char     mqtt_topic_prefix[SVC_MQTT_PREFIX_MAX];/**< default svc/<board>/<name>  */
+    uint8_t  mqtt_tls;                              /**< 0/1 (default 0)             */
+    uint8_t  mqtt_allow_remote_control;             /**< 0/1 (default 0 = telemetry only) */
+    uint16_t mqtt_command_timeout_ms;               /**< stale-command guard (default 5000) */
 
     uint32_t crc;   /**< CRC32 over all preceding bytes (integrity guard).      */
 } svc_config_t;
@@ -233,6 +257,40 @@ typedef struct {
     uint8_t  fallback_din_chan;
     uint32_t crc;
 } svc_config_v4_t;
+
+/**
+ * @brief FROZEN legacy v5 layout: target-neutral + multi-sensor presence block,
+ *        but WITHOUT the v6 MQTT block. Mirrors the v5 svc_config_t exactly.
+ *        Retained ONLY for v5->v6 migration. Never change.
+ */
+typedef struct {
+    uint16_t version;
+    char     board_id[HAL_BOARD_ID_MAX];
+    char     device_name[SVC_DEVICE_NAME_MAX];
+    uint8_t  wifi_enabled;
+    char     wifi_ssid[SVC_WIFI_SSID_MAX];
+    char     wifi_pass[SVC_WIFI_PASS_MAX];
+    uint8_t  eth_enabled;
+    uint8_t  relay_active_high[HAL_MAX_RELAY];
+    uint8_t  relay_safe_on[HAL_MAX_RELAY];
+    uint32_t din_active_low;
+    uint16_t din_debounce_ms;
+    uint8_t  presence_slave;
+    uint16_t presence_reg;
+    uint16_t presence_present_min;
+    uint16_t presence_poll_ms;
+    svc_rule_t rule[SVC_RULE_MAX];
+    uint8_t  provisioned;
+    uint8_t  webui_require_auth;
+    char     setup_password[SVC_SETUP_PW_MAX];
+    uint8_t  fallback_din_enabled;
+    uint8_t  fallback_din_chan;
+    uint8_t  presence_sensor_count;
+    presence_sensor_cfg_t presence_sensor[SVC_PRESENCE_MAX_SENSORS];
+    uint16_t room_empty_delay_sec;
+    uint8_t  sensor_fault_policy;
+    uint32_t crc;
+} svc_config_v5_t;
 
 /* Safe timing bounds enforced by svc_config_sanitize(). */
 #define SVC_DIN_DEBOUNCE_MIN_MS   1

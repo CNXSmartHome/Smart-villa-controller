@@ -20,6 +20,18 @@ static const char *const WRITABLE_KEYS[] = {
     "presence_2_type", "presence_2_rs485_port", "presence_2_modbus_addr",
     "presence_2_din_index", "presence_2_reg", "presence_2_present_min",
     "fallback_din_enabled", "fallback_din_chan",
+    /* MQTT / CNX installer fields (schema v6, SVC-015 Phase 0). mqtt_pass is
+       writable here (body only) but write-only: never returned by GET. This list
+       still EXCLUDES setup_password/provisioned/webui_require_auth/board identity/
+       relay polarity+safe-state. Remote control stays OFF unless explicitly set. */
+    "mqtt_enabled", "mqtt_host", "mqtt_port", "mqtt_user", "mqtt_pass",
+    "mqtt_client_id", "mqtt_topic_prefix", "mqtt_tls",
+    "mqtt_allow_remote_control", "mqtt_command_timeout_ms",
+};
+
+/* Secret fields: writable via POST (body only) but NEVER returned by GET. */
+static const char *const SECRET_KEYS[] = {
+    "wifi_pass", "setup_password", "mqtt_pass",
 };
 
 bool webui_settings_is_writable(const char *key)
@@ -29,6 +41,19 @@ bool webui_settings_is_writable(const char *key)
     }
     for (size_t i = 0; i < sizeof(WRITABLE_KEYS)/sizeof(WRITABLE_KEYS[0]); ++i) {
         if (strcmp(key, WRITABLE_KEYS[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool webui_settings_is_secret(const char *key)
+{
+    if (key == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(SECRET_KEYS)/sizeof(SECRET_KEYS[0]); ++i) {
+        if (strcmp(key, SECRET_KEYS[i]) == 0) {
             return true;
         }
     }
@@ -93,6 +118,30 @@ svc_err_t webui_settings_apply(svc_config_t *cfg, const char *key,
         cfg->fallback_din_enabled = to_u32(value) ? 1 : 0;
     } else if (strcmp(key, "fallback_din_chan") == 0) {
         cfg->fallback_din_chan = (uint8_t)to_u32(value);
+    } else if (strcmp(key, "mqtt_enabled") == 0) {
+        cfg->mqtt_enabled = to_u32(value) ? 1 : 0;
+    } else if (strcmp(key, "mqtt_host") == 0) {
+        set_str(cfg->mqtt_host, sizeof(cfg->mqtt_host), value);
+    } else if (strcmp(key, "mqtt_port") == 0) {
+        /* Parse in u32 first: a raw >65535 (e.g. 70000) must NOT wrap into a
+           valid-looking uint16 (4464). Out-of-range -> 0 so svc_config_sanitize
+           defaults it to SVC_MQTT_PORT_DEFAULT (1883). */
+        uint32_t p = to_u32(value);
+        cfg->mqtt_port = (p == 0 || p > 65535) ? 0 : (uint16_t)p;
+    } else if (strcmp(key, "mqtt_user") == 0) {
+        set_str(cfg->mqtt_user, sizeof(cfg->mqtt_user), value);
+    } else if (strcmp(key, "mqtt_pass") == 0) {
+        set_str(cfg->mqtt_pass, sizeof(cfg->mqtt_pass), value);  /* body only, write-only */
+    } else if (strcmp(key, "mqtt_client_id") == 0) {
+        set_str(cfg->mqtt_client_id, sizeof(cfg->mqtt_client_id), value);
+    } else if (strcmp(key, "mqtt_topic_prefix") == 0) {
+        set_str(cfg->mqtt_topic_prefix, sizeof(cfg->mqtt_topic_prefix), value);
+    } else if (strcmp(key, "mqtt_tls") == 0) {
+        cfg->mqtt_tls = to_u32(value) ? 1 : 0;
+    } else if (strcmp(key, "mqtt_allow_remote_control") == 0) {
+        cfg->mqtt_allow_remote_control = to_u32(value) ? 1 : 0;
+    } else if (strcmp(key, "mqtt_command_timeout_ms") == 0) {
+        cfg->mqtt_command_timeout_ms = (uint16_t)to_u32(value);
     } else if (strncmp(key, "presence_1_", 11) == 0) {
         return apply_sensor(cfg, 0, key + 11, value);
     } else if (strncmp(key, "presence_2_", 11) == 0) {

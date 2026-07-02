@@ -9,6 +9,7 @@
 #include "svc_config.h"
 #include "svc_common.h"
 #include <string.h>
+#include <stdio.h>
 
 /** Force a fixed-size char array to be NUL-terminated (never read past it). */
 #define NUL_TERMINATE(arr) do { (arr)[sizeof(arr) - 1] = '\0'; } while (0)
@@ -65,6 +66,22 @@ void svc_config_defaults(svc_config_t *cfg)
     cfg->provisioned        = 0;
     cfg->webui_require_auth = 1;
     cfg->setup_password[0]  = '\0';
+
+    /* MQTT (v6): OFF by default; remote control OFF by default. Strings are left
+       empty (memset above); sanitize() builds the default topic prefix. */
+    cfg->mqtt_enabled              = 0;
+    cfg->mqtt_port                 = SVC_MQTT_PORT_DEFAULT;
+    cfg->mqtt_tls                  = 0;
+    cfg->mqtt_allow_remote_control = 0;
+    cfg->mqtt_command_timeout_ms   = SVC_MQTT_CMD_TIMEOUT_DEFAULT_MS;
+}
+
+/** MQTT topic chars: keep '/' as the hierarchy separator; reject wildcards
+    ('#','+'), spaces, and anything else that could break or inject a topic. */
+static inline int mqtt_topic_char_ok(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '/';
 }
 
 void svc_config_sanitize(svc_config_t *cfg)
@@ -181,6 +198,44 @@ void svc_config_sanitize(svc_config_t *cfg)
                                           SVC_ROOM_EMPTY_DELAY_MAX);
     if (cfg->sensor_fault_policy > 2) {
         cfg->sensor_fault_policy = 0;      /* default HOLD (never false-empties) */
+    }
+
+    /* 10. MQTT (v6): NUL-terminate all strings, normalize booleans, clamp port +
+           timeout, and build/sanitize the topic prefix. Remote control is a plain
+           0/1 here — the (future) command subscriber additionally gates every
+           output command; config alone can never energize a relay. */
+    NUL_TERMINATE(cfg->mqtt_host);
+    NUL_TERMINATE(cfg->mqtt_user);
+    NUL_TERMINATE(cfg->mqtt_pass);
+    NUL_TERMINATE(cfg->mqtt_client_id);
+    NUL_TERMINATE(cfg->mqtt_topic_prefix);
+    cfg->mqtt_enabled              = norm_bool(cfg->mqtt_enabled);
+    cfg->mqtt_tls                  = norm_bool(cfg->mqtt_tls);
+    cfg->mqtt_allow_remote_control = norm_bool(cfg->mqtt_allow_remote_control);
+    if (cfg->mqtt_port == 0) {             /* uint16 is already <= 65535 */
+        cfg->mqtt_port = SVC_MQTT_PORT_DEFAULT;
+    }
+    if (cfg->mqtt_command_timeout_ms == 0) {
+        cfg->mqtt_command_timeout_ms = SVC_MQTT_CMD_TIMEOUT_DEFAULT_MS;
+    }
+    /* Default an empty prefix to svc/<board_id>/<device_name>. */
+    if (cfg->mqtt_topic_prefix[0] == '\0') {
+        const char *board = cfg->board_id[0]    ? cfg->board_id    : "svc";
+        const char *name  = cfg->device_name[0] ? cfg->device_name : "device";
+        /* Cap each field with a precision so the worst case ("svc/" + 29 + "/" +
+           29 = 63 + NUL) always fits the 64-byte buffer — otherwise board_id(31)
+           + device_name(31) could exceed it (bounded by snprintf, but the build
+           runs -Werror=format-truncation). Installers can set a full prefix. */
+        snprintf(cfg->mqtt_topic_prefix, sizeof(cfg->mqtt_topic_prefix),
+                 "svc/%.29s/%.29s", board, name);
+        NUL_TERMINATE(cfg->mqtt_topic_prefix);
+    }
+    /* Sanitize every prefix char (installer-supplied or generated) to a safe set;
+       reject MQTT wildcards and spaces so the base can never break/inject topics. */
+    for (size_t i = 0; cfg->mqtt_topic_prefix[i] != '\0'; ++i) {
+        if (!mqtt_topic_char_ok(cfg->mqtt_topic_prefix[i])) {
+            cfg->mqtt_topic_prefix[i] = '_';
+        }
     }
 
     /* Keep the version stamp current. */
