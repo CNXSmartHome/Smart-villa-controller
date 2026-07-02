@@ -1,0 +1,18 @@
+# SVC-100 Rev A — ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM).
+# Merged AFTER sdkconfig.defaults when the target is esp32s3.
+
+# --- Board / HAL profile (pins board_id = svc100_reva for the config guard) ---
+CONFIG_SVC_TARGET_SVC100_REVA=y
+
+# --- Flash: 16 MB, QIO @ 80 MHz ---
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# --- Octal PSRAM ---
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# --- Console over USB-C (native USB-Serial-JTAG) ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

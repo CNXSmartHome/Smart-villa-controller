@@ -7,17 +7,58 @@ on:
       - "main/**"
       - "CMakeLists.txt"
       - "sdkconfig.defaults"
-      - "partitions.csv"
+      - "sdkconfig.defaults.*"
+      - "partitions*.csv"
+      - "tests/host/**"
+      - ".github/workflows/build.yml"
   pull_request:
 
 jobs:
-  build:
+  # Fast, no-IDF gate: pure security/logic modules under ASan/UBSan.
+  host-tests:
+    name: host unit tests
     runs-on: ubuntu-latest
-    container: espressif/idf:release-v5.3
     steps:
       - uses: actions/checkout@v4
-      - name: Build firmware
+      - name: Run host tests
+        shell: bash
+        # run.sh is a bash script (arrays, `set -o pipefail`). Invoke with bash,
+        # not sh: on ubuntu-latest /bin/sh is dash and would fail on both.
+        run: bash tests/host/run.sh
+
+  # Firmware build matrix. Add targets by extending `matrix.include`.
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.3
+    needs: host-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: SVC-100 (esp32s3)
+            idf_target: esp32s3
+            experimental: false
+          # --- SVC-026 phase 2: KinCony KC868-A8 (classic esp32) ---
+          # Enable once app_main/services are wired through the HAL (SVC-024/025)
+          # and a 4 MB partition table exists. sdkconfig.defaults.esp32 is already
+          # in place. Uncomment to add the leg (experimental keeps CI green while
+          # it is being brought up):
+          # - name: KinCony KC868-A8 (esp32)
+          #   idf_target: esp32
+          #   experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set target and build
         shell: bash
         run: |
           . $IDF_PATH/export.sh
+          # set-target applies sdkconfig.defaults + sdkconfig.defaults.<target>
+          idf.py set-target ${{ matrix.idf_target }}
           idf.py build
+      - name: Report binary size
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py size || true

@@ -1,0 +1,27 @@
+# KinCony KC868-A8 — classic ESP32-WROOM-32 (4 MB flash, NO PSRAM).
+# Merged AFTER sdkconfig.defaults when the target is esp32.
+#
+# PREPARED FOR SVC-026 PHASE 2 — NOT BUILT IN CI YET. Before enabling the esp32
+# leg of the build matrix:
+#   1. Wire app_main/services through hal_install()/hal_board_init() (SVC-024/025).
+#      Today app_main still boots the SVC-100 board path, which uses ESP32-S3-only
+#      pins and USB-Serial-JTAG and will NOT link for classic ESP32.
+#   2. Provide a 4 MB partition table and enable the override below — the shared
+#      partitions.csv is a 16 MB dual-3 MB-OTA layout that does NOT fit 4 MB.
+
+# --- Board / HAL profile (pins board_id = kincony_kc868_a8 for the config guard) ---
+CONFIG_SVC_TARGET_KINCONY_A8=y
+
+# --- Flash: 4 MB, DIO @ 40 MHz ---
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_40M=y
+
+# --- No PSRAM on KC868-A8 ---
+CONFIG_SPIRAM=n
+
+# --- Console over UART0 (classic ESP32 has no USB-Serial-JTAG) ---
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# --- 4 MB partition table (create partitions_kincony.csv, then enable) ---
+# CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_kincony.csv"

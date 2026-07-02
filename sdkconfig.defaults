@@ -1,15 +1,11 @@
-# SVC-100 baseline configuration (tracked). Local sdkconfig is git-ignored.
+# SVC OS — COMMON build defaults (target-neutral). Applied to EVERY target.
+# Per-silicon overrides live in sdkconfig.defaults.<idf_target> and are auto-
+# merged by idf.py AFTER this file. Local sdkconfig is git-ignored.
 
-# --- Target / flash / PSRAM ---
+# --- Default target (overridden by `idf.py set-target <t>` e.g. in CI) ---
 CONFIG_IDF_TARGET="esp32s3"
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
-CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-CONFIG_SPIRAM_SPEED_80M=y
 
-# --- Partition table ---
+# --- Partition table (16 MB dual-OTA; a per-target file may override the name) ---
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
@@ -23,9 +19,6 @@ CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_PANIC=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESP_INT_WDT=y
-
-# --- Console over USB-C (USB-Serial-JTAG) ---
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # --- Networking / services (optional layer) ---
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
