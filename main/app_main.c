@@ -11,6 +11,7 @@
 #include "svc_common.h"
 #include "svc_version.h"
 #include "board.h"
+#include "hal_board.h"
 #include "eventbus.h"
 #include "storage.h"
 #include "indicator.h"
@@ -56,7 +57,15 @@ static void log_banner(void)
 /** Bring up the mandatory, standalone control path. Failure here is fatal. */
 static svc_err_t bringup_core(void)
 {
-    SVC_RETURN_ON_ERR(board_init());
+    /* SVC-025 phase 1: bring the board up THROUGH the HAL instead of calling
+       board_init() directly. hal_install() registers the linked target's driver
+       + profile (SVC-100 = native GPIO); hal_board_init() then runs that driver's
+       init (== board_init()) and applies the de-energized safe state. Behavior is
+       unchanged for SVC-100 — relay_init() below still sets polarity/safe state.
+       The IO services (relay/dinput/rs485/…) are moved onto hal_* separately in
+       SVC-024 phase 2; they still use BOARD_* directly here. */
+    SVC_RETURN_ON_ERR(hal_install());
+    SVC_RETURN_ON_ERR(hal_board_init());
     SVC_RETURN_ON_ERR(eventbus_init(24));
     SVC_RETURN_ON_ERR(storage_init());
 

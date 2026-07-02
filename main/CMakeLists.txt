@@ -6,5 +6,6 @@ idf_component_register(
         indicator relay dinput button
         rs485 modbus_master presence
         control netmgr webui health
+        svc_hal hal_svc100
     PRIV_REQUIRES freertos esp_app_format app_update
 )

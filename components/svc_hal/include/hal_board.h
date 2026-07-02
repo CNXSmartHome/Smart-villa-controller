@@ -101,6 +101,17 @@ typedef struct {
 
 /* ----- target installation (called once by the linked hal_<target>) ----- */
 
+/**
+ * @brief Install the linked build target's HAL driver + profile.
+ *
+ * PROVIDED BY the single linked hal_<target> component (e.g. hal_svc100), which
+ * calls hal_board_register() with its own driver + board_profile_t. app_main
+ * calls hal_install() once at boot, then hal_board_init(). Fails closed if the
+ * target build did not link a HAL implementation (linker error) or registration
+ * is rejected.
+ */
+svc_err_t hal_install(void);
+
 /** @brief Register the active driver + profile. Validates counts <= HAL_MAX_*. */
 svc_err_t hal_board_register(const hal_driver_t *drv, const board_profile_t *profile);
 
