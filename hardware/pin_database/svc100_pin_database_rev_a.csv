@@ -1,0 +1,25 @@
+GPIO,Board_Macro,Function,ESP32S3_Role,Boot_Strapping,Status,Notes
+GPIO1,BOARD_GPIO_I2C_SDA,I2C SDA (RTC),General IO,No,OK,Safe general-purpose pin
+GPIO2,BOARD_GPIO_I2C_SCL,I2C SCL (RTC),General IO,No,OK,Safe general-purpose pin
+GPIO4,BOARD_GPIO_RELAY_0,Relay 0 output,General IO,No,PENDING-HW-CONFIRM,External pull-down on driver input (RG-6)
+GPIO5,BOARD_GPIO_RELAY_1,Relay 1 output,General IO,No,PENDING-HW-CONFIRM,RG-6
+GPIO6,BOARD_GPIO_RELAY_2,Relay 2 output,General IO,No,PENDING-HW-CONFIRM,RG-6
+GPIO7,BOARD_GPIO_RELAY_3,Relay 3 output,General IO,No,PENDING-HW-CONFIRM,RG-6
+GPIO8,BOARD_GPIO_DIN_4,Digital input 4,General IO,No,OK,Dry-contact pull-up
+GPIO9,BOARD_GPIO_DIN_5,Digital input 5,General IO,No,OK,Dry-contact pull-up
+GPIO10,BOARD_GPIO_DIN_6,Digital input 6,General IO,No,OK,Dry-contact pull-up
+GPIO11,BOARD_GPIO_DIN_7,Digital input 7,General IO,No,OK,Dry-contact pull-up
+GPIO12,BOARD_GPIO_RS485A_TX,RS485-A UART1 TX,General IO,No,OK,Free GPIO on S3
+GPIO13,BOARD_GPIO_RS485A_RX,RS485-A UART1 RX,General IO,No,OK,Free GPIO on S3
+GPIO14,BOARD_GPIO_RS485A_DE,RS485-A DE/RE,General IO,No,OK,UART RTS HW RS485 half-duplex
+GPIO15,BOARD_GPIO_DIN_0,Digital input 0,Boot/UART-adjacent,Caution,PENDING-HW-CONFIRM,RG-1
+GPIO16,BOARD_GPIO_DIN_1,Digital input 1,UART-adjacent,Caution,PENDING-HW-CONFIRM,RG-1
+GPIO17,BOARD_GPIO_DIN_2,Digital input 2,UART-adjacent,Caution,PENDING-HW-CONFIRM,RG-1
+GPIO18,BOARD_GPIO_DIN_3,Digital input 3,General IO,No,OK,Dry-contact pull-up
+GPIO21,BOARD_GPIO_RS485B_TX,RS485-B UART2 TX,General IO,No,OK,Free GPIO on S3
+GPIO38,BOARD_GPIO_LED_STRIP,Status LED WS2812 RMT,General IO,No,OK,Safe general-purpose pin
+GPIO39,BOARD_GPIO_BUZZER,Buzzer LEDC PWM,JTAG MTCK,No,PENDING-HW-CONFIRM,Pin-JTAG unavailable (USB-JTAG used)
+GPIO40,BOARD_GPIO_BTN_CONFIG,Config button active-low,JTAG MTDO,No,PENDING-HW-CONFIRM,Pin-JTAG unavailable
+GPIO41,BOARD_GPIO_BTN_RESET,Reset button active-low,JTAG MTDI,No,PENDING-HW-CONFIRM,Pin-JTAG unavailable
+GPIO47,BOARD_GPIO_RS485B_RX,RS485-B UART2 RX,General IO,No,PENDING-HW-CONFIRM,RG-5
+GPIO48,BOARD_GPIO_RS485B_DE,RS485-B DE/RE,General IO,No,PENDING-HW-CONFIRM,RG-5; WS2812 strap on some dev boards

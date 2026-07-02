@@ -1,0 +1,45 @@
+Ref,Qty,Value,Device,Package/Footprint,Net In,Net Out,Notes
+J1,1,24VDC In,Screw terminal 2P 5.08mm,TerminalBlock 2P,VIN_24V/GND,,Field power input 12-24VDC
+F1,1,MF-R250,PTC resettable 2.5A hold,Bourns MF-RG,VIN_24V,VIN_F,Sized for 1.2A peak with 0.6x derate at 60C (~1.5A derated)
+Q1,1,DMP10H700S,P-FET 100V reverse protect,SOT-23,VIN_F,VIN_PROTECTED,>=100V Vds for 24V reverse + surge margin
+R1,1,100k,Gate pulldown,R_0603,RPP_G,GND,
+D2,1,SMBJ15CA,Gate-source clamp,SMB,VIN_PROTECTED,RPP_G,|VGS|<=15V
+D1,1,SMBJ30A,Input TVS,SMB,VIN_PROTECTED,GND,Standoff 30V > 26.4V; clamp ~48V < 60V buck
+C1,1,100uF/50V,Bulk electrolytic,CP 8x10.5,VIN_PROTECTED,GND,
+C2,1,10uF/50V,MLCC,C_1210,VIN_PROTECTED,GND,
+C3,1,100nF/50V,MLCC,C_0603,VIN_PROTECTED,GND,
+U1,1,TPS54360DDA,Buck 60V 3.5A,HSOP-8-1EP,VIN_PROTECTED,+5V,TI ref design
+C4,1,100nF,Boot cap,C_0603,BOOT,SW,
+R2,1,442k,EN UVLO top,R_0603,VIN_PROTECTED,EN,Recalc: Vstart~10.5V
+R3,1,60.4k,EN UVLO bottom,R_0603,EN,GND,Vstop~9.0V
+R4,1,100k,RT/CLK,R_0603,RT,GND,~500kHz
+D3,1,SS5P6,Catch Schottky 60V 5A,SMC,SW,GND,
+L1,1,15uH/4A,Power inductor,SMD,SW,+5V,Isat>=4A
+R5,1,52.3k,FB top,R_0603,+5V,FB,Vout~5.0V
+R6,1,10k,FB bottom,R_0603,FB,GND,
+R7,1,11.3k,Comp R (calc),R_0603,COMP,COMP_C,Type-II fc~30kHz per SLVSBB4; bench-confirm PM
+C5,1,8.2nF,Comp C (calc),C_0603,COMP_C,GND,Zero at output pole ~1.6kHz
+C6,1,47pF,Comp Chf,C_0603,COMP,GND,UNPROVEN
+C7,1,22uF/16V,Out MLCC,C_1210,+5V,GND,
+C8,1,22uF/16V,Out MLCC,C_1210,+5V,GND,
+C9,1,100nF,Out HF,C_0603,+5V,GND,
+U2,1,TPS563201,Sync buck 3.3V,SOT-23-6,+5V,+3V3,Replaces LDO for thermal headroom
+C10,1,10uF/16V,Buck33 in,C_0805,+5V,GND,
+R10,1,100k,EN pull-up,R_0603,+5V,EN3V3,
+L2,1,2.2uH/3A,Buck33 inductor,SMD,SW3,+3V3,
+R11,1,45.3k,FB top,R_0603,+3V3,FB3,Vout~3.3V (0.6V ref)
+R12,1,10k,FB bottom,R_0603,FB3,GND,
+C11,1,22uF/10V,Buck33 out,C_0805,+3V3,GND,
+C12,1,100nF,Buck33 out HF,C_0603,+3V3,GND,
+R8,1,0R,Sensor src +5V (FIT),R_0603,+5V,SENSOR_SEL,Default safe 5V source
+R9,1,0R,Sensor src 12-24V (DNP),R_0603,VIN_PROTECTED,SENSOR_SEL,Fit only for wide-input sensor
+F2,1,MF-R050,Sensor PTC 0.5A,Bourns MF-RG,SENSOR_SEL,SENSOR_V+,
+D4,1,SMBJ5.0A,Sensor TVS (5V default),SMB,SENSOR_V+,GND,Change to SMBJ33A if 12-24V sensor
+C13,1,10uF/16V,Sensor bulk,C_1210,SENSOR_V+,GND,
+C14,1,100nF,Sensor HF,C_0603,SENSOR_V+,GND,
+J2,1,Sensor pwr,Screw terminal 2P 5.08mm,TerminalBlock 2P,SENSOR_V+/GND,,SILK: CHECK SENSOR VOLTAGE (SVC-011)
+TP1-5,5,Test points,Pad D2.0mm,TestPoint,VIN_PROTECTED/+5V/+3V3/GND/SENSOR_V+,,Bring-up probing
+TP6,1,SW test point,Pad D2.0mm DNP,TestPoint,SW,,DNP - EMI/short risk; guard if fitted
+PWR1-6,6,PWR_FLAG,ERC power flag,-,,,Schematic-only (not on PCB)
+ASSY-VARIANT-A,-,DEFAULT,Variant A (5V sensor),-,,,FIT R8(0R) / DNP R9 / D4=SMBJ5.0A -> SENSOR_V+ = 5V
+ASSY-VARIANT-B,-,OPTION,Variant B (12-24V sensor),-,,,DNP R8 / FIT R9(0R) / D4=SMBJ33A -> SENSOR_V+ = 12-24V; build ONE variant only

@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SVC-100 UI Simulator v2</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9; --panel: #fff; --ink: #1f2933; --muted: #637083;
+      --line: #d8dee8; --accent: #1769aa; --accent-2: #0f8b6f;
+      --danger: #b42318; --ok: #147a55; --warn: #b06a00;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg); color: var(--ink); }
+    main { width: min(960px, calc(100% - 32px)); margin: 24px auto 60px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 22px; font-weight: 700; }
+    h3 { margin: 0 0 10px; font-size: 15px; }
+    .pill { border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+      color: var(--muted); font-size: 13px; padding: 6px 10px; white-space: nowrap; }
+    .pill.live { color: var(--ok); border-color: #bfe3d2; }
+    section, .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 14px; padding: 14px; }
+    legend { padding: 0 6px; color: var(--muted); font-size: 13px; font-weight: 650; }
+    label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: 13px; font-weight: 600; }
+    input, select { width: 100%; min-height: 38px; border: 1px solid var(--line);
+      border-radius: 6px; background: #fff; color: var(--ink); font: inherit; padding: 7px 9px; }
+    button { min-height: 38px; border: 0; border-radius: 6px; background: var(--accent);
+      color: #fff; font: inherit; font-weight: 650; padding: 8px 12px; cursor: pointer; }
+    button.secondary { background: #e8eef5; color: var(--ink); }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+    button.danger { background: var(--danger); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    #msg { min-height: 20px; margin: 10px 0 0; font-size: 14px; font-weight: 700; }
+    .ok { color: var(--ok); } .bad { color: var(--danger); } .warn { color: var(--warn); }
+    .muted { color: var(--muted); }
+    .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
+    .tabs button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+    .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tab { display: none; } .tab.active { display: block; }
+    .kv { display: grid; gap: 10px; font-size: 14px; }
+    .kv > div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid #eef1f5; padding-bottom: 8px; }
+    .kv span:first-child { color: var(--muted); }
+    .badge { border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 700; }
+    .b-on { background: #e6f4ec; color: var(--ok); } .b-off { background: #eef1f5; color: var(--muted); }
+    .b-unknown { background: #fff3e0; color: var(--warn); }
+    .ios { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .io { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex;
+      align-items: center; justify-content: space-between; gap: 10px; }
+    .io small { color: var(--muted); display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid #eef1f5; }
+    th { color: var(--muted); font-weight: 650; }
+    td input, td select { min-height: 32px; padding: 4px 6px; }
+    .hidden { display: none !important; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    @media (max-width: 760px) {
+      .row, .row3, .ios { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Smart Villa Controller</h1>
+      <div class="pill" id="connPill">UI simulator v2</div>
+    </header>
+
+    <!-- Login gate -->
+    <section id="loginCard">
+      <h3>Sign in</h3>
+      <div class="row">
+        <div>
+          <label>Setup password</label>
+          <input id="pw" type="password" autocomplete="off" value="admin1234">
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:8px">
+          <button onclick="login()">Sign in</button>
+          <button class="secondary" onclick="failAuth()">Fail auth</button>
+        </div>
+      </div>
+      <div id="msg" class="muted">Password is sent only in the request body (X-Auth-Token), never the URL.</div>
+    </section>
+
+    <!-- App (shown after login) -->
+    <div id="app" class="hidden">
+      <div class="tabs" id="tabbar">
+        <button data-tab="dashboard" class="active">Dashboard</button>
+        <button data-tab="control">Control</button>
+        <button data-tab="rules">Rules</button>
+        <button data-tab="network">Network / MQTT</button>
+        <button data-tab="settings">Settings</button>
+        <button data-tab="ota">OTA</button>
+      </div>
+
+      <!-- Dashboard -->
+      <div class="tab active" id="tab-dashboard">
+        <section>
+          <h3>Overview</h3>
+          <div class="kv">
+            <div><span>Presence</span><strong id="d_presence">-</strong></div>
+            <div><span>Room</span><strong id="d_room">-</strong></div>
+            <div><span>Health</span><strong id="d_health">-</strong></div>
+            <div><span>Fault latched</span><strong id="d_fault">-</strong></div>
+            <div><span>Network</span><strong id="d_net">-</strong></div>
+            <div><span>MQTT</span><strong id="d_mqtt">-</strong></div>
+            <div><span>Uptime</span><strong id="d_uptime">-</strong></div>
+            <div><span>Last event</span><strong id="d_event">-</strong></div>
+          </div>
+          <div class="toolbar"><button class="ghost" onclick="refreshAll()">Refresh</button></div>
+        </section>
+      </div>
+
+      <!-- Control -->
+      <div class="tab" id="tab-control">
+        <section>
+          <h3>Relays</h3>
+          <div class="ios" id="relayGrid"></div>
+          <h3 style="margin-top:16px">Digital inputs (live)</h3>
+          <div class="ios" id="inputGrid"></div>
+          <div class="hint">Relay changes call authenticated <code>POST /api/io</code> (X-Auth-Token + X-SVC-CSRF).</div>
+        </section>
+      </div>
+
+      <!-- Rules -->
+      <div class="tab" id="tab-rules">
+        <section>
+          <h3>Automation rules</h3>
+          <table>
+            <thead>
+              <tr><th>Trigger</th><th>Channel</th><th>FOR (ms)</th><th>Action</th><th>Target relay</th><th>OFF delay (ms)</th><th></th></tr>
+            </thead>
+            <tbody id="ruleRows"></tbody>
+          </table>
+          <div class="toolbar">
+            <button class="secondary" onclick="addRule()">Add rule</button>
+            <button onclick="saveRules()">Save rules</button>
+          </div>
+          <div class="hint">Rules are posted to <code>POST /api/config</code> as a JSON <code>rules</code> array.</div>
+        </section>
+      </div>
+
+      <!-- Network / MQTT -->
+      <div class="tab" id="tab-network">
+        <section>
+          <h3>Network / MQTT</h3>
+          <form id="mqttForm" onsubmit="return false">
+            <fieldset>
+              <legend>MQTT</legend>
+              <div class="row">
+                <div>
+                  <label>Enable MQTT</label>
+                  <select name="mqtt_enabled"><option value="0">No</option><option value="1">Yes</option></select>
+                </div>
+                <div>
+                  <label>TLS</label>
+                  <select name="mqtt_tls"><option value="0">Off</option><option value="1">On</option></select>
+                </div>
+              </div>
+              <div class="row">
+                <div><label>Broker host</label><input name="mqtt_host" maxlength="63"></div>
+                <div><label>Port</label><input name="mqtt_port" type="number" min="1" max="65535"></div>
+              </div>
+              <div class="row">
+                <div><label>Username</label><input name="mqtt_user" maxlength="63"></div>
+                <div><label>Password</label><input name="mqtt_pass" type="password" autocomplete="off" maxlength="63"></div>
+              </div>
+              <label>Topic prefix</label>
+              <input name="mqtt_topic_prefix" maxlength="63">
+            </fieldset>
+          </form>
+          <div class="toolbar">
+            <button class="secondary" onclick="testMqtt()">Test connection</button>
+            <button onclick="saveNetwork()">Save network</button>
+          </div>
+          <div id="mqttMsg" class="hint">Password only leaves the browser inside the request body.</div>
+        </section>
+      </div>
+
+      <!-- Settings (existing flow preserved) -->
+      <div class="tab" id="tab-settings">
+        <form id="f" onsubmit="return false">
+          <fieldset>
+            <legend>Device</legend>
+            <label>Device name</label>
+            <input name="device_name" maxlength="31">
+            <div class="row">
+              <div><label>Room empty delay (sec)</label><input name="room_empty_delay_sec" type="number" min="0" max="3600"></div>
+              <div>
+                <label>Sensor fault policy</label>
+                <select name="sensor_fault_policy">
+                  <option value="0">Hold (never false-off)</option>
+                  <option value="1">Assume occupied</option>
+                  <option value="2">Ignore faulted</option>
+                </select>
+              </div>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Wi-Fi</legend>
+            <div class="row">
+              <div>
+                <label>Enabled</label>
+                <select name="wifi_enabled"><option value="0">No</option><option value="1">Yes</option></select>
+              </div>
+              <div><label>SSID</label><input name="wifi_ssid" maxlength="31"></div>
+            </div>
+            <label>Password</label>
+            <input name="wifi_pass" type="password" autocomplete="off" maxlength="63">
+          </fieldset>
+          <fieldset>
+            <legend>Presence sensors</legend>
+            <label>Sensor count</label>
+            <select name="presence_sensor_count"><option>0</option><option>1</option><option>2</option></select>
+            <div class="row">
+              <div>
+                <label>Sensor 1 type</label>
+                <select name="presence_1_type"><option value="0">Disabled</option><option value="1">RS485</option><option value="2">Dry contact</option></select>
+                <label>S1 RS485 port</label><input name="presence_1_rs485_port" type="number" min="0">
+                <label>S1 Modbus addr</label><input name="presence_1_modbus_addr" type="number" min="1" max="247">
+                <label>S1 dry-contact input</label><input name="presence_1_din_index" type="number" min="0">
+              </div>
+              <div>
+                <label>Sensor 2 type</label>
+                <select name="presence_2_type"><option value="0">Disabled</option><option value="1">RS485</option><option value="2">Dry contact</option></select>
+                <label>S2 RS485 port</label><input name="presence_2_rs485_port" type="number" min="0">
+                <label>S2 Modbus addr</label><input name="presence_2_modbus_addr" type="number" min="1" max="247">
+                <label>S2 dry-contact input</label><input name="presence_2_din_index" type="number" min="0">
+              </div>
+            </div>
+          </fieldset>
+          <button type="button" onclick="saveSettings()">Save settings</button>
+          <div id="settingsMsg" class="hint"></div>
+        </form>
+      </div>
+
+      <!-- OTA -->
+      <div class="tab" id="tab-ota">
+        <section>
+          <h3>Firmware update (OTA)</h3>
+          <label>Firmware image URL</label>
+          <input id="otaUrl" placeholder="https://updates.example.com/svc100.bin">
+          <div class="toolbar">
+            <button onclick="startOta()">Start update</button>
+          </div>
+          <div class="kv" style="margin-top:14px">
+            <div><span>Health gate</span><strong id="ota_gate">idle</strong></div>
+            <div><span>Rollback</span><strong id="ota_rollback">armed</strong></div>
+            <div><span>Last image</span><strong id="ota_url">-</strong></div>
+          </div>
+          <div id="otaMsg" class="hint">OTA is validated by boot health checks; a failed image rolls back.</div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    "use strict";
+    var TOK = "", CSRF = "";
+    var lastConfig = {};
+
+    function auth() { return { "X-Auth-Token": TOK }; }
+    function mut() { return { "X-Auth-Token": TOK, "X-SVC-CSRF": CSRF }; }
+    function el(id) { return document.getElementById(id); }
+    function msg(t, cls) { var e = el("msg"); e.textContent = t; e.className = cls || "muted"; }
+
+    async function getJSON(path) {
+      var r = await fetch(path, { headers: auth() });
+      if (!r.ok) throw new Error(r.status + " " + path);
+      return r.json();
+    }
+    async function postForm(path, obj, out) {
+      var body = Object.entries(obj)
+        .filter(function (kv) { return kv[1] !== ""; })
+        .map(function (kv) { return encodeURIComponent(kv[0]) + "=" + encodeURIComponent(kv[1]); })
+        .join("&");
+      var r = await fetch(path, {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/x-www-form-urlencoded" }, mut()),
+        body: body,
+      });
+      var j = await r.json().catch(function () { return {}; });
+      if (out) out.textContent = r.ok ? (out.dataset.ok || "Saved.") : ("Failed: " + (j.error || r.status));
+      if (out) out.className = "hint " + (r.ok ? "ok" : "bad");
+      return { ok: r.ok, j: j };
+    }
+    async function postJSON(path, obj) {
+      var r = await fetch(path, {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/json" }, mut()),
+        body: JSON.stringify(obj),
+      });
+      var j = await r.json().catch(function () { return {}; });
+      return { ok: r.ok, status: r.status, j: j };
+    }
+
+    /* ---------- login ---------- */
+    async function login() {
+      TOK = el("pw").value;
+      msg("Signing in...", "muted");
+      try {
+        var c = await fetch("/api/csrf", { headers: auth() });
+        if (!c.ok) { msg("Authentication failed", "bad"); return; }
+        CSRF = (await c.json()).csrf;
+        lastConfig = await getJSON("/api/config");
+        fillForm(el("f"), lastConfig);
+        fillForm(el("mqttForm"), lastConfig);
+        renderRules(lastConfig.rules || []);
+        el("app").classList.remove("hidden");
+        el("loginCard").classList.add("hidden");
+        el("connPill").textContent = "Authenticated";
+        el("connPill").className = "pill live";
+        await refreshAll();
+        startPolling();
+      } catch (e) { msg("Error: " + e.message, "bad"); }
+    }
+    function failAuth() { el("pw").value = "wrong-password"; login(); }
+
+    function fillForm(form, cfg) {
+      if (!form) return;
+      for (var k in cfg) { if (form[k] !== undefined && form[k].tagName) form[k].value = cfg[k]; }
+    }
+    function formToObj(form) {
+      var o = {};
+      for (var i = 0; i < form.elements.length; i++) {
+        var elt = form.elements[i];
+        if (elt.name) o[elt.name] = elt.value;
+      }
+      return o;
+    }
+
+    /* ---------- dashboard ---------- */
+    async function refreshDashboard() {
+      var s = await fetch("/api/status").then(function (r) { return r.json(); });
+      var roomCls = s.room === "occupied" ? "b-on" : (s.room === "unknown" ? "b-unknown" : "b-off");
+      el("d_presence").innerHTML = badge(s.presence === 1 ? "detected" : (s.presence === 2 ? "unknown" : "clear"),
+        s.presence === 1 ? "b-on" : (s.presence === 2 ? "b-unknown" : "b-off"));
+      el("d_room").innerHTML = badge(s.room, roomCls);
+      el("d_health").innerHTML = badge(s.health, s.health === "OK" ? "b-on" : "b-unknown");
+      el("d_fault").innerHTML = badge(s.fault ? "yes" : "no", s.fault ? "b-unknown" : "b-off");
+      el("d_net").textContent = s.network.wifi === "connected"
+        ? ("Wi-Fi " + s.network.ssid + " @ " + s.network.ip) : ("Wi-Fi " + s.network.wifi);
+      el("d_mqtt").textContent = s.network.mqtt;
+      el("d_uptime").textContent = Math.floor(s.uptime_ms / 1000) + " s";
+      el("d_event").textContent = s.last_event;
+    }
+    function badge(text, cls) { return '<span class="badge ' + cls + '">' + text + "</span>"; }
+
+    /* ---------- control ---------- */
+    async function refreshControl() {
+      var io = await getJSON("/api/io");
+      var rg = el("relayGrid"); rg.innerHTML = "";
+      for (var i = 0; i < io.relay_count; i++) {
+        var on = (io.relays >> i) & 1;
+        var d = document.createElement("div"); d.className = "io";
+        d.innerHTML = "<div><strong>" + io.relay_labels[i] + "</strong><small>Relay " + (i + 1) + "</small></div>";
+        var b = document.createElement("button");
+        b.textContent = on ? "ON" : "OFF";
+        b.className = on ? "" : "secondary";
+        (function (idx, isOn) { b.onclick = function () { setRelay(idx, !isOn); }; })(i, on);
+        d.appendChild(b); rg.appendChild(d);
+      }
+      var ig = el("inputGrid"); ig.innerHTML = "";
+      for (var j = 0; j < io.input_count; j++) {
+        var a = (io.inputs >> j) & 1;
+        var e = document.createElement("div"); e.className = "io";
+        e.innerHTML = "<div><strong>" + io.input_labels[j] + "</strong><small>DI " + (j + 1) + "</small></div>" +
+          badge(a ? "ACTIVE" : "idle", a ? "b-on" : "b-off");
+        ig.appendChild(e);
+      }
+    }
+    async function setRelay(idx, on) {
+      var r = await fetch("/api/io?relay=" + idx + "&on=" + (on ? 1 : 0), { method: "POST", headers: mut() });
+      if (!r.ok) { var j = await r.json().catch(function () { return {}; }); alert("Relay failed: " + (j.error || r.status)); }
+      await refreshControl();
+    }
+
+    /* ---------- rules ---------- */
+    var TRIGGERS = ["presence", "din", "schedule", "manual"];
+    function renderRules(rules) {
+      var tb = el("ruleRows"); tb.innerHTML = "";
+      rules.forEach(function (rule) { tb.appendChild(ruleRow(rule)); });
+    }
+    function ruleRow(rule) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + sel("r_trigger", TRIGGERS, rule.trigger) + "</td>" +
+        "<td><input class='r_channel' type='number' min='0' max='31' value='" + (rule.channel || 0) + "'></td>" +
+        "<td><input class='r_for' type='number' min='0' value='" + (rule.for_ms || 0) + "'></td>" +
+        "<td>" + sel2("r_action", [["1", "ON"], ["0", "OFF"]], String(rule.action)) + "</td>" +
+        "<td><input class='r_target' type='number' min='0' max='3' value='" + (rule.target_relay || 0) + "'></td>" +
+        "<td><input class='r_off' type='number' min='0' value='" + (rule.off_delay_ms || 0) + "'></td>" +
+        "<td><button class='ghost' onclick='this.closest(\"tr\").remove()'>x</button></td>";
+      return tr;
+    }
+    function sel(cls, opts, val) {
+      return "<select class='" + cls + "'>" + opts.map(function (o) {
+        return "<option " + (o === val ? "selected" : "") + ">" + o + "</option>";
+      }).join("") + "</select>";
+    }
+    function sel2(cls, pairs, val) {
+      return "<select class='" + cls + "'>" + pairs.map(function (p) {
+        return "<option value='" + p[0] + "' " + (p[0] === val ? "selected" : "") + ">" + p[1] + "</option>";
+      }).join("") + "</select>";
+    }
+    function addRule() { el("ruleRows").appendChild(ruleRow({ trigger: "presence", channel: 0, for_ms: 0, action: 1, target_relay: 0, off_delay_ms: 0 })); }
+    async function saveRules() {
+      var rules = [];
+      el("ruleRows").querySelectorAll("tr").forEach(function (tr) {
+        rules.push({
+          trigger: tr.querySelector(".r_trigger").value,
+          channel: Number(tr.querySelector(".r_channel").value),
+          for_ms: Number(tr.querySelector(".r_for").value),
+          action: Number(tr.querySelector(".r_action").value),
+          target_relay: Number(tr.querySelector(".r_target").value),
+          off_delay_ms: Number(tr.querySelector(".r_off").value),
+        });
+      });
+      var res = await postJSON("/api/config", { rules: rules });
+      alert(res.ok ? "Rules saved (" + res.j.applied + " field)." : "Save failed: " + (res.j.error || res.status));
+      if (res.ok) { lastConfig = await getJSON("/api/config"); renderRules(lastConfig.rules || []); }
+    }
+
+    /* ---------- network / mqtt ---------- */
+    async function saveNetwork() {
+      var out = el("mqttMsg"); out.dataset.ok = "MQTT settings saved.";
+      await postForm("/api/config", formToObj(el("mqttForm")), out);
+    }
+    async function testMqtt() {
+      var out = el("mqttMsg");
+      var res = await postJSON("/api/mqtt/test", formToObj(el("mqttForm")));
+      out.className = "hint " + (res.ok ? "ok" : "bad");
+      out.textContent = (res.ok ? "OK: " : "Failed: ") + (res.j.message || res.status) +
+        (res.j.latency_ms ? (" (" + res.j.latency_ms + " ms)") : "");
+    }
+
+    /* ---------- settings (existing flow) ---------- */
+    async function saveSettings() {
+      var out = el("settingsMsg"); out.dataset.ok = "Settings saved.";
+      var res = await postForm("/api/config", formToObj(el("f")), out);
+      if (res.ok) out.textContent = "Saved (" + res.j.applied + " applied, " + res.j.rejected + " rejected).";
+    }
+
+    /* ---------- ota ---------- */
+    async function startOta() {
+      var out = el("otaMsg");
+      var res = await postJSON("/api/ota", { url: el("otaUrl").value });
+      out.className = "hint " + (res.ok ? "ok" : "bad");
+      out.textContent = res.j.message || res.j.error || res.status;
+      if (res.ok) {
+        el("ota_gate").textContent = res.j.health_gate;
+        el("ota_rollback").textContent = res.j.rollback;
+        el("ota_url").textContent = res.j.url;
+      }
+    }
+
+    /* ---------- polling + tabs ---------- */
+    async function refreshAll() { await refreshDashboard(); await refreshControl(); }
+    var poll = null;
+    function startPolling() { if (poll) clearInterval(poll); poll = setInterval(refreshAll, 5000); }
+
+    document.getElementById("tabbar").addEventListener("click", function (e) {
+      var t = e.target.getAttribute("data-tab"); if (!t) return;
+      document.querySelectorAll(".tabs button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-tab") === t); });
+      document.querySelectorAll(".tab").forEach(function (p) { p.classList.toggle("active", p.id === "tab-" + t); });
+      if (t === "dashboard" || t === "control") refreshAll();
+    });
+  </script>
+</body>
+</html>

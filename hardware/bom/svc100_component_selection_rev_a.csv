@@ -1,10 +1,10 @@
 Block,Part Role,Primary Candidate,Second Source / Alternative,Status,Notes
 MCU,Wi-Fi MCU,ESP32-S3-WROOM-1-N16R8,ESP32-S3-WROOM-1-N8R8,Selected,Use Espressif reference design
-Input Protection,PTC/Fuse,Bourns MF-R series,Littelfuse PolySwitch,Open,Size after current budget
-Input Protection,TVS,SMBJ33A / SMBJ36A,SMCJ equivalent,Open,Depends VIN max
-Reverse Protection,PMOS ideal diode,AO3401/other PMOS TBD,Schottky diode prototype,Open,PMOS preferred production
-Buck 5V,24V to 5V,MP1584EN class,TPS54331 / LM2596,Open,2A preferred
-3V3 Regulator,5V to 3.3V,TLV75533/TLV76733 class,AP2112K if current OK,Open,700mA–1A target
+Input Protection,PTC/Fuse,Bourns MF-R250 2.5A (F1),Littelfuse PolySwitch,Selected (Sheet 01),Sized for 1.2A peak + 0.6x derate at 60C
+Input Protection,TVS,SMBJ30A,SMBJ33A,Selected (Sheet 01),Standoff 30V>26.4V; clamp ~48V<60V buck (better margin)
+Reverse Protection,PMOS 100V (DMP10H700S),Schottky prototype,Selected (Sheet 01),AO3401 30V rejected; 100V for reverse + surge margin
+Buck 5V,24V to 5V,TI TPS54360 (60V 3.5A),MPS 60V buck,Selected (Sheet 01) - CTO ratify,Resolves doc28 TVS-vs-buck conflict; surge>0.5kV -> 80-100V buck RevB
+3V3 Regulator,5V to 3.3V,TI TPS563201 (sync buck),AP7361C-33 LDO (DNP alt),Selected (Sheet 01),Buck chosen over LDO for thermal headroom (doc28 allows)
 RS485,Transceiver,SP3485,MAX3485 / ADM3485,Selected candidate,3.3V logic
 RS485 Protection,TVS,SM712,Equivalent RS485 TVS,Selected candidate,A/B protection
 Relay,Mechanical relay,Omron/Panasonic/Finder,Hongfa prototype,Open,5V coil preferred
