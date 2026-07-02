@@ -37,8 +37,9 @@ svc_err_t webui_stop(void);
  * @brief Tell the Web UI whether the physical config button was held at boot.
  *
  * Must be called BEFORE webui_start(). When true, first-time provisioning is
- * permitted regardless of the post-boot factory window — this is the explicit,
- * physically-present provisioning path.
+ * permitted — this is the explicit, physically-present provisioning path.
+ * Provisioning is otherwise allowed ONLY in AP provisioning mode; there is no
+ * LAN/time-window path.
  *
  * @param held true if the config button was asserted during boot.
  */

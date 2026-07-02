@@ -1,0 +1,33 @@
+menu "Smart Villa OS — Hardware Target"
+
+choice SVC_TARGET
+    prompt "Hardware target board"
+    default SVC_TARGET_SVC100_REVA
+    help
+        Selects the HAL target compiled and registered at boot. Exactly one.
+
+        NOTE: the default stays SVC-100 Rev A until app_main/services are wired
+        through hal_install()/hal_board_init() (SVC-024/SVC-025). Today app_main
+        still boots the SVC-100 board path directly, so defaulting to a KinCony
+        target would stamp the config board_id as KinCony while actually running
+        SVC-100 hardware — a dangerous mismatch for the OTA/config board guard.
+        Do NOT make a KinCony target the default until the HAL wiring lands.
+
+    config SVC_TARGET_SVC100_REVA
+        bool "SVC-100 Pro Rev A (ESP32-S3, native GPIO) — default until HAL wired"
+    config SVC_TARGET_KINCONY_A8
+        bool "KinCony KC868-A8 (ESP32, PCF8574 IO)"
+    config SVC_TARGET_KINCONY_A16
+        bool "KinCony KC868-A16 (ESP32, PCF8574 IO)"
+endchoice
+
+config SVC_BOARD_ID
+    string "Expected board_id (config-target guard)"
+    default "kincony_kc868_a8" if SVC_TARGET_KINCONY_A8
+    default "kincony_kc868_a16" if SVC_TARGET_KINCONY_A16
+    default "svc100_reva" if SVC_TARGET_SVC100_REVA
+    help
+        Stored configs tagged with a different board_id are rejected and
+        factory-defaulted on load (prevents cross-board config/firmware mixups).
+
+endmenu

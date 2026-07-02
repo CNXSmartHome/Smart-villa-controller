@@ -1,0 +1,15 @@
+menu "SVC-100 Control"
+
+config SVC_USE_LOGIC_ENGINE
+    bool "Use the IF/FOR/THEN logic engine for relay control (review-gated)"
+    default n
+    help
+        When enabled, control.c drives relays via the components/logic engine
+        (presence/digital-input conditions with FOR dwell, OFF-delay linger, and
+        OFF interlocks) and applies the SVC-012 dry-contact presence fallback.
+
+        DEFAULT OFF. The legacy per-rule evaluator remains the production path
+        until this integration is signed off on the bench. Do NOT enable for a
+        production build without Codex review and bench validation.
+
+endmenu

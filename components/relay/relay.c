@@ -12,6 +12,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include <inttypes.h>
 #include <stdatomic.h>
 
 static const char *TAG = "relay";
@@ -20,7 +21,7 @@ static const char *TAG = "relay";
 #define RELAY_LOCK_TIMEOUT_MS 200
 
 static relay_cfg_t       s_cfg;
-static atomic_uchar      s_state_mask;   /* bit i = logical state of channel i */
+static atomic_uint       s_state_mask;   /* bit i = logical state of channel i */
 static SemaphoreHandle_t s_lock;
 static bool              s_initialized;
 
@@ -33,9 +34,9 @@ static inline uint32_t phys_level(uint8_t ch, bool on)
 static inline void mask_set_bit(uint8_t ch, bool on)
 {
     if (on) {
-        atomic_fetch_or(&s_state_mask, (unsigned char)(1U << ch));
+        atomic_fetch_or(&s_state_mask, (uint32_t)(1U << ch));
     } else {
-        atomic_fetch_and(&s_state_mask, (unsigned char)~(1U << ch));
+        atomic_fetch_and(&s_state_mask, (uint32_t)~(1U << ch));
     }
 }
 
@@ -131,11 +132,11 @@ svc_err_t relay_apply_safe(void)
     if (locked) {
         xSemaphoreGive(s_lock);
     }
-    ESP_LOGW(TAG, "safe state applied (mask=0x%02x)", relay_state_mask());
+    ESP_LOGW(TAG, "safe state applied (mask=0x%08" PRIx32 ")", relay_state_mask());
     return rc;
 }
 
-uint8_t relay_state_mask(void)
+uint32_t relay_state_mask(void)
 {
-    return (uint8_t)atomic_load(&s_state_mask);
+    return (uint32_t)atomic_load(&s_state_mask);
 }

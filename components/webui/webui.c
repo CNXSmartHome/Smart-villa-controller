@@ -34,12 +34,16 @@
 #include "health.h"
 #include "storage.h"
 #include "control.h"
+#include "hal_board.h"
 #include "netmgr.h"
 #include "webui_authz.h"
+#include "webui_settings.h"
 #include "svc_version.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 static const char *TAG = "webui";
 
@@ -48,15 +52,65 @@ static svc_config_t   s_cfg;            /* live working copy */
 static char           s_csrf[33];       /* per-boot CSRF token (hex) */
 static bool           s_boot_button;    /* config button held at boot */
 
-/* --- Minimal single-page UI (production assets live in the /storage part). --- */
+/* --- Installer settings page (SVC-014). Single-file; the setup password is
+ * held only in memory and sent as the X-Auth-Token header — never in a URL. --- */
 static const char INDEX_HTML[] =
-    "<!doctype html><html><head><meta charset=utf-8>"
-    "<meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>SVC-100</title></head><body>"
-    "<h2>Smart Villa Controller SVC-100</h2>"
-    "<p>Local controller. Status at <code>/api/status</code>. Control endpoints "
-    "require setup + authentication.</p>"
-    "</body></html>";
+"<!doctype html><html><head><meta charset=utf-8>"
+"<meta name=viewport content='width=device-width,initial-scale=1'>"
+"<title>SVC-100 Settings</title><style>"
+"body{font-family:sans-serif;max-width:640px;margin:1rem auto;padding:0 1rem}"
+"label{display:block;margin:.5rem 0 .2rem;font-size:.9rem}"
+"input,select{width:100%;padding:.4rem;box-sizing:border-box}"
+"fieldset{margin:.8rem 0}button{padding:.5rem 1rem;margin-top:.6rem}"
+"#msg{margin:.6rem 0;font-weight:bold}</style></head><body>"
+"<h2>Smart Villa Controller — Settings</h2>"
+"<div id=msg></div>"
+"<fieldset><legend>Sign in</legend>"
+"<label>Setup password</label><input id=pw type=password autocomplete=off>"
+"<button onclick=load()>Load settings</button></fieldset>"
+"<form id=f style=display:none>"
+"<fieldset><legend>Device</legend>"
+"<label>Device name</label><input name=device_name maxlength=31>"
+"<label>Room empty delay (sec)</label><input name=room_empty_delay_sec type=number min=0 max=3600>"
+"<label>Sensor fault policy</label><select name=sensor_fault_policy>"
+"<option value=0>Hold (never false-off)</option><option value=1>Assume occupied</option>"
+"<option value=2>Ignore faulted</option></select></fieldset>"
+"<fieldset><legend>Wi-Fi</legend>"
+"<label>Enabled</label><select name=wifi_enabled><option value=0>No</option><option value=1>Yes</option></select>"
+"<label>SSID</label><input name=wifi_ssid maxlength=31>"
+"<label>Password</label><input name=wifi_pass type=password autocomplete=off maxlength=63></fieldset>"
+"<fieldset><legend>Presence sensors</legend>"
+"<label>Sensor count</label><select name=presence_sensor_count><option>0</option><option>1</option><option>2</option></select>"
+"<label>Sensor 1 type</label><select name=presence_1_type><option value=0>Disabled</option><option value=1>RS485</option><option value=2>Dry contact</option></select>"
+"<label>S1 RS485 port</label><input name=presence_1_rs485_port type=number min=0>"
+"<label>S1 Modbus addr</label><input name=presence_1_modbus_addr type=number min=1 max=247>"
+"<label>S1 dry-contact input</label><input name=presence_1_din_index type=number min=0>"
+"<label>Sensor 2 type</label><select name=presence_2_type><option value=0>Disabled</option><option value=1>RS485</option><option value=2>Dry contact</option></select>"
+"<label>S2 RS485 port</label><input name=presence_2_rs485_port type=number min=0>"
+"<label>S2 Modbus addr</label><input name=presence_2_modbus_addr type=number min=1 max=247>"
+"<label>S2 dry-contact input</label><input name=presence_2_din_index type=number min=0>"
+"</fieldset><button type=button onclick=save()>Save settings</button></form>"
+"<script>"
+"var TOK='',CSRF='';"
+"function H(){return {'X-Auth-Token':TOK,'X-SVC-CSRF':CSRF}}"
+"function m(t,ok){var e=document.getElementById('msg');e.textContent=t;e.style.color=ok?'green':'crimson'}"
+"async function load(){TOK=document.getElementById('pw').value;m('Loading...',true);"
+"try{var c=await fetch('/api/csrf',{headers:{'X-Auth-Token':TOK}});"
+"if(!c.ok){m('Auth failed',false);return}CSRF=(await c.json()).csrf;"
+"var r=await fetch('/api/config',{headers:{'X-Auth-Token':TOK}});"
+"if(!r.ok){m('Load failed: '+r.status,false);return}var cfg=await r.json();"
+"var f=document.getElementById('f');f.style.display='block';"
+"for(var k in cfg){if(f[k]!==undefined)f[k].value=cfg[k]}"
+"m('Loaded. Edit and Save.',true)}catch(e){m('Error: '+e,false)}}"
+"async function save(){var f=document.getElementById('f');var b=[];"
+"for(var el of f.elements){if(el.name&&el.value!=='')"
+"b.push(encodeURIComponent(el.name)+'='+encodeURIComponent(el.value))}"
+"try{var r=await fetch('/api/config',{method:'POST',"
+"headers:Object.assign({'Content-Type':'application/x-www-form-urlencoded'},H()),"
+"body:b.join('&')});var j=await r.json();"
+"if(r.ok)m('Saved ('+j.applied+' fields).',true);else m('Save failed: '+(j.error||r.status),false)}"
+"catch(e){m('Error: '+e,false)}}"
+"</script></body></html>";
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -74,6 +128,35 @@ static esp_err_t send_status(httpd_req_t *req, const char *code, const char *jso
     return send_json(req, json);
 }
 
+/**
+ * @brief Bounded JSON/text append into @p buf, tracking the write position in
+ *        @p *pos. Safe against truncation: if the formatted output does not fit,
+ *        @p *pos is saturated to @p cap and the function returns false so the
+ *        caller stops appending. It NEVER computes an out-of-bounds pointer
+ *        (`buf + *pos`) or an underflowing remaining-size (`cap - *pos`),
+ *        because it early-returns once @p *pos == cap.
+ *
+ * Usage: check the final `*pos < cap` (or the accumulated bool) before sending;
+ * a saturated buffer means the response was too large and must be a 500 rather
+ * than silently-truncated JSON.
+ */
+static bool buf_appendf(char *buf, size_t cap, size_t *pos, const char *fmt, ...)
+{
+    if (*pos >= cap) {
+        return false;                     /* already full: no OOB pointer/size */
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    int w = vsnprintf(buf + *pos, cap - *pos, fmt, ap);
+    va_end(ap);
+    if (w < 0 || (size_t)w >= cap - *pos) {
+        *pos = cap;                       /* encoding error or truncation */
+        return false;
+    }
+    *pos += (size_t)w;
+    return true;
+}
+
 /** Read a request header into @p buf; returns true if present and it fit. */
 static bool get_header(httpd_req_t *req, const char *name, char *buf, size_t cap)
 {
@@ -84,17 +167,40 @@ static bool get_header(httpd_req_t *req, const char *name, char *buf, size_t cap
     return httpd_req_get_hdr_value_str(req, name, buf, cap) == ESP_OK;
 }
 
-/** Length-independent compare to avoid trivial timing leaks on the token. */
-static bool str_eq_ct(const char *a, const char *b)
+/**
+ * @brief Length-independent equality compare, to avoid timing leaks on a secret.
+ *
+ * The loop ALWAYS runs @p span iterations and unconditionally reads BOTH
+ * buffers at every index — no strlen() pre-scan, no length-dependent branch
+ * anywhere in the compare path — so the time taken reveals neither the
+ * secret's length nor the matching-prefix length. Bytes at or past each
+ * string's NUL are masked to 0 by a branchlessly-maintained "live" mask, and
+ * any live-mask divergence (a length difference) is folded into the result,
+ * so unequal-length strings compare false without early exit.
+ *
+ * @p span must be >= the secret buffer's capacity (callers pass
+ * sizeof(secret)), and BOTH pointers must reference buffers of at least
+ * @p span readable bytes: every index < span is read unconditionally.
+ * Callers holding a possibly-shorter string must use a buffer of at least
+ * @p span capacity (zero-initialize it so trailing bytes are defined).
+ */
+static bool str_eq_ct(const char *a, const char *b, size_t span)
 {
     if (a == NULL || b == NULL) {
         return false;
     }
-    size_t la = strlen(a), lb = strlen(b);
-    unsigned char diff = (unsigned char)(la ^ lb);
-    size_t n = la < lb ? la : lb;
-    for (size_t i = 0; i < n; ++i) {
-        diff |= (unsigned char)(a[i] ^ b[i]);
+    unsigned char diff   = 0;
+    unsigned char a_live = 0xFF;   /* 0xFF until a's NUL has been seen */
+    unsigned char b_live = 0xFF;   /* 0xFF until b's NUL has been seen */
+    for (size_t i = 0; i < span; ++i) {
+        unsigned char ca = (unsigned char)a[i] & a_live;
+        unsigned char cb = (unsigned char)b[i] & b_live;
+        diff |= (unsigned char)(ca ^ cb);         /* content mismatch */
+        diff |= (unsigned char)(a_live ^ b_live); /* length mismatch  */
+        /* Branchless mask update: ((c + 0xFF) >> 8) is 1 iff c != 0, so the
+           mask stays 0xFF inside the string and drops to 0 at/after the NUL. */
+        a_live &= (unsigned char)(0u - (((unsigned)ca + 0xFFu) >> 8));
+        b_live &= (unsigned char)(0u - (((unsigned)cb + 0xFFu) >> 8));
     }
     return diff == 0;
 }
@@ -120,11 +226,11 @@ static bool api_authenticated(httpd_req_t *req)
            exists. Mutating routes are blocked separately by is_provisioned(). */
         return false;
     }
-    char token[SVC_SETUP_PW_MAX + 1];
+    char token[SVC_SETUP_PW_MAX + 1] = {0};  /* zeroed: str_eq_ct reads span bytes */
     if (!get_header(req, "X-Auth-Token", token, sizeof(token))) {
         return false;
     }
-    return str_eq_ct(token, s_cfg.setup_password);
+    return str_eq_ct(token, s_cfg.setup_password, sizeof(s_cfg.setup_password));
 }
 
 /**
@@ -143,11 +249,11 @@ static bool provisioning_mode(void)
 /** CSRF check: per-boot token in the non-standard X-SVC-CSRF header. */
 static bool csrf_ok(httpd_req_t *req)
 {
-    char token[sizeof(s_csrf)];
+    char token[sizeof(s_csrf)] = {0};        /* zeroed: str_eq_ct reads span bytes */
     if (!get_header(req, "X-SVC-CSRF", token, sizeof(token))) {
         return false;
     }
-    return str_eq_ct(token, s_csrf);
+    return str_eq_ct(token, s_csrf, sizeof(s_csrf));
 }
 
 /**
@@ -218,6 +324,24 @@ static esp_err_t h_status(httpd_req_t *req)
     return send_json(req, buf);
 }
 
+/* Effective I/O bounds: prefer the installed HAL profile, but fall back to
+ * the legacy compile-time board limits while app_main still boots the pre-HAL
+ * path (until SVC-024/025 wire hal_install()/hal_board_init()). Without the
+ * fallback hal_relay_count() returns 0 and every authenticated relay POST
+ * would be rejected as out of range. The fallback cannot widen access: the
+ * relay/dinput drivers still fail closed at BOARD_*_COUNT internally. */
+static uint8_t effective_relay_count(void)
+{
+    uint8_t n = hal_relay_count();
+    return n ? n : BOARD_RELAY_COUNT;
+}
+
+static uint8_t effective_din_count(void)
+{
+    uint8_t n = hal_din_count();
+    return n ? n : BOARD_DINPUT_COUNT;
+}
+
 static esp_err_t h_io_get(httpd_req_t *req)
 {
     /* Reading physical I/O state is privileged: it requires authentication just
@@ -226,9 +350,61 @@ static esp_err_t h_io_get(httpd_req_t *req)
         return send_status(req, "401 Unauthorized",
                            "{\"error\":\"authentication required\"}");
     }
-    char buf[96];
-    snprintf(buf, sizeof(buf), "{\"relays\":%u,\"inputs\":%u}",
-             relay_state_mask(), dinput_state_mask());
+    /* Board-aware status: identity, counts, capabilities, labels, live states.
+       Counts fall back to the compile-time board limits while HAL is unwired
+       so the UI still renders the relays (see effective_relay_count()). */
+    const board_profile_t *bp = hal_board_get_info();
+    uint8_t rc = effective_relay_count();
+    uint8_t dc = effective_din_count();
+    uint32_t rmask = relay_state_mask();
+    uint32_t imask = dinput_state_mask();
+
+    char buf[1024];
+    size_t pos = 0;
+    bool ok = true;
+    char nm[SVC_DEVICE_NAME_MAX * 6 + 1];
+    if (svc_json_escape_n(s_cfg.device_name,
+                          strnlen(s_cfg.device_name, sizeof(s_cfg.device_name)),
+                          nm, sizeof(nm)) != SVC_OK) nm[0] = '\0';
+    /* P2 (Project Bible): every profile-derived string is escaped before it
+       is placed in JSON — identity and labels included, not just config. On
+       escape failure (oversized input) the field degrades to "" rather than
+       emitting raw or truncated text. board_id is a fixed array (bounded via
+       strnlen); board_name/labels are NUL-terminated string literals. */
+    char id_esc[HAL_BOARD_ID_MAX * 6 + 1];
+    char bn_esc[48 * 6 + 1];
+    char lbl_esc[32 * 6 + 1];
+    if (!bp || svc_json_escape_n(bp->board_id,
+                                 strnlen(bp->board_id, sizeof(bp->board_id)),
+                                 id_esc, sizeof(id_esc)) != SVC_OK)
+        id_esc[0] = '\0';
+    if (!bp || svc_json_escape(bp->board_name ? bp->board_name : "",
+                               bn_esc, sizeof(bn_esc)) != SVC_OK)
+        bn_esc[0] = '\0';
+    ok &= buf_appendf(buf, sizeof(buf), &pos,
+        "{\"board_id\":\"%s\",\"board_name\":\"%s\",\"device_name\":\"%s\","
+        "\"capabilities\":%lu,\"relay_count\":%u,\"input_count\":%u,"
+        "\"relays\":%lu,\"inputs\":%lu,\"relay_labels\":[",
+        id_esc, bn_esc, nm,
+        (unsigned long)hal_board_get_capabilities(), rc, dc,
+        (unsigned long)rmask, (unsigned long)imask);
+    for (uint8_t i = 0; i < rc && ok; ++i) {
+        const char *lbl = (bp && bp->relay_labels) ? bp->relay_labels[i] : "";
+        if (svc_json_escape(lbl ? lbl : "", lbl_esc, sizeof(lbl_esc)) != SVC_OK)
+            lbl_esc[0] = '\0';
+        ok &= buf_appendf(buf, sizeof(buf), &pos, "%s\"%s\"", i ? "," : "", lbl_esc);
+    }
+    ok &= buf_appendf(buf, sizeof(buf), &pos, "],\"input_labels\":[");
+    for (uint8_t i = 0; i < dc && ok; ++i) {
+        const char *lbl = (bp && bp->din_labels) ? bp->din_labels[i] : "";
+        if (svc_json_escape(lbl ? lbl : "", lbl_esc, sizeof(lbl_esc)) != SVC_OK)
+            lbl_esc[0] = '\0';
+        ok &= buf_appendf(buf, sizeof(buf), &pos, "%s\"%s\"", i ? "," : "", lbl_esc);
+    }
+    ok &= buf_appendf(buf, sizeof(buf), &pos, "]}");
+    if (!ok) {                            /* truncated -> never send partial JSON */
+        return httpd_resp_send_500(req);
+    }
     return send_json(req, buf);
 }
 
@@ -263,17 +439,31 @@ static esp_err_t h_io_post(httpd_req_t *req)
         return send_status(req, "400 Bad Request",
                            "{\"error\":\"need ?relay=N&on=0|1\"}");
     }
-    uint8_t relay = (uint8_t)atoi(vrelay);
+    int ri = atoi(vrelay);
     bool on = (atoi(von) != 0);
-    if (relay_set(relay, on) != SVC_OK) {
+    /* Fail closed: reject out-of-range / unavailable relay indices for this board. */
+    if (ri < 0 || ri >= (int)effective_relay_count()) {
+        return send_status(req, "400 Bad Request",
+                           "{\"error\":\"relay index out of range for this board\"}");
+    }
+    if (relay_set((uint8_t)ri, on) != SVC_OK) {
         return send_status(req, "400 Bad Request", "{\"error\":\"set failed\"}");
     }
-    ESP_LOGW(TAG, "authenticated relay %u -> %d", relay, on);
+    ESP_LOGW(TAG, "authenticated relay %d -> %d", ri, on);
     return send_json(req, "{\"ok\":true}");
 }
 
 static esp_err_t h_config_get(httpd_req_t *req)
 {
+    /* Installer config (SSID, enabled interfaces, sensor topology, input polarity,
+       provisioning state) is privileged. Same rule as GET /api/io: after
+       provisioning it REQUIRES authentication. It never returns secrets, but is
+       not public. The settings page already sends X-Auth-Token. */
+    if (!webui_io_get_allowed(is_provisioned(), api_authenticated(req))) {
+        return send_status(req, "401 Unauthorized",
+                           "{\"error\":\"authentication required\"}");
+    }
+
     /* Secrets (wifi_pass, setup_password) are NEVER returned. Each config string
        is escaped with svc_json_escape_n bounded by strnlen over the fixed array,
        so an un-terminated array can never cause an out-of-bounds read. */
@@ -288,13 +478,34 @@ static esp_err_t h_config_get(httpd_req_t *req)
                           ssid_esc, sizeof(ssid_esc)) != SVC_OK)
         ssid_esc[0] = '\0';
 
-    char buf[256];
-    snprintf(buf, sizeof(buf),
-             "{\"name\":\"%s\",\"wifi\":%u,\"ssid\":\"%s\",\"eth\":%u,"
-             "\"din_active_low\":%u,\"presence_slave\":%u,\"provisioned\":%s}",
+    /* Field names match the settings-form inputs and the writable whitelist so
+       the page can populate directly (secrets excluded). Extra keys the form
+       does not bind are harmlessly ignored by the loader. Buffer sized for the
+       worst case (fully-escaped name+ssid, ~6x each) and the write is checked:
+       a truncated response is a 500, never silently-truncated JSON. */
+    const presence_sensor_cfg_t *s1 = &s_cfg.presence_sensor[0];
+    const presence_sensor_cfg_t *s2 = &s_cfg.presence_sensor[1];
+    char buf[768];
+    size_t pos = 0;
+    bool ok = buf_appendf(buf, sizeof(buf), &pos,
+             "{\"device_name\":\"%s\",\"wifi_enabled\":%u,\"wifi_ssid\":\"%s\","
+             "\"eth_enabled\":%u,\"din_active_low\":%" PRIu32 ","
+             "\"room_empty_delay_sec\":%u,\"sensor_fault_policy\":%u,"
+             "\"presence_sensor_count\":%u,"
+             "\"presence_1_type\":%u,\"presence_1_rs485_port\":%u,"
+             "\"presence_1_modbus_addr\":%u,\"presence_1_din_index\":%u,"
+             "\"presence_2_type\":%u,\"presence_2_rs485_port\":%u,"
+             "\"presence_2_modbus_addr\":%u,\"presence_2_din_index\":%u,"
+             "\"provisioned\":%s}",
              name_esc, s_cfg.wifi_enabled, ssid_esc, s_cfg.eth_enabled,
-             s_cfg.din_active_low, s_cfg.presence_slave,
+             s_cfg.din_active_low, s_cfg.room_empty_delay_sec,
+             s_cfg.sensor_fault_policy, s_cfg.presence_sensor_count,
+             s1->type, s1->rs485_port, s1->modbus_addr, s1->din_index,
+             s2->type, s2->rs485_port, s2->modbus_addr, s2->din_index,
              is_provisioned() ? "true" : "false");
+    if (!ok) {
+        return httpd_resp_send_500(req);
+    }
     return send_json(req, buf);
 }
 
@@ -330,8 +541,9 @@ static bool form_field(const char *body, size_t body_len, const char *key,
  * @brief First-time provisioning: establish the setup password.
  *
  * SECURITY (P2 of this pass):
- *   - Only accepted while provisioning_mode() is true (button-at-boot / AP mode
- *     / factory window) — never from ambient LAN on an already-running unit.
+ *   - Only accepted while provisioning_mode() is true, i.e. ONLY with the
+ *     physical config button held at boot or active AP provisioning mode. There
+ *     is no LAN/time-window path — ambient-LAN provisioning is not possible.
  *   - The password is read from the POST BODY only, never the URL query string
  *     (query strings leak into logs, history, and the Referer header).
  *   - A valid per-boot CSRF header is required (browser-originated protection).
@@ -389,6 +601,101 @@ static esp_err_t h_provision_post(httpd_req_t *req)
     return send_json(req, "{\"ok\":true,\"provisioned\":true}");
 }
 
+/** Minimal URL-decode (%XX + '+') into a bounded buffer. */
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+static void url_decode(char *dst, size_t cap, const char *src, size_t len)
+{
+    size_t o = 0;
+    for (size_t i = 0; i < len && o + 1 < cap; ++i) {
+        char c = src[i];
+        if (c == '+') {
+            dst[o++] = ' ';
+        } else if (c == '%' && i + 2 < len) {
+            int hi = hexval(src[i + 1]), lo = hexval(src[i + 2]);
+            if (hi >= 0 && lo >= 0) { dst[o++] = (char)(hi * 16 + lo); i += 2; }
+            else dst[o++] = c;
+        } else {
+            dst[o++] = c;
+        }
+    }
+    dst[o] = '\0';
+}
+
+/**
+ * @brief SVC-014 settings write. Mutating -> requires provisioned + auth + CSRF.
+ *        Body is application/x-www-form-urlencoded key=value pairs (secrets like
+ *        wifi_pass travel in the BODY, never the URL). Only whitelisted installer
+ *        keys are applied (webui_settings_apply); the config is sanitized and
+ *        persisted atomically (a working copy is committed only if it saves).
+ */
+static esp_err_t h_config_post(httpd_req_t *req)
+{
+    if (guard_mutating(req) != ESP_OK) {
+        return ESP_OK;   /* 401/403 already sent */
+    }
+    /* Sized for the full settings form fully percent-encoded: worst case is
+       ~700 bytes (device_name 31 + ssid 31 + wifi_pass 63, all %XX-expanded,
+       plus ~15 keys). 512 was too small and would 400 a legitimate save. */
+    char body[1024];
+    if (req->content_len == 0 || req->content_len >= sizeof(body)) {
+        return send_status(req, "400 Bad Request",
+                           "{\"error\":\"missing/oversized body\"}");
+    }
+    int total = 0;
+    while (total < (int)req->content_len) {
+        int r = httpd_req_recv(req, body + total, sizeof(body) - 1 - total);
+        if (r <= 0) {
+            return send_status(req, "400 Bad Request", "{\"error\":\"body read failed\"}");
+        }
+        total += r;
+    }
+    body[total] = '\0';
+
+    svc_config_t work = s_cfg;   /* apply to a copy; commit only on success */
+    int applied = 0, rejected = 0;
+    size_t i = 0, len = (size_t)total;
+    while (i < len) {
+        size_t start = i;
+        while (i < len && body[i] != '&') i++;
+        size_t tlen = i - start;
+        if (i < len) i++;                       /* skip '&' */
+        const char *tok = &body[start];
+        size_t eq = 0;
+        while (eq < tlen && tok[eq] != '=') eq++;
+        if (eq == tlen) continue;               /* malformed pair */
+        char key[48], val[96];
+        url_decode(key, sizeof(key), tok, eq);
+        url_decode(val, sizeof(val), tok + eq + 1, tlen - eq - 1);
+        if (webui_settings_apply(&work, key, val) == SVC_OK) applied++;
+        else rejected++;                         /* unknown/protected -> ignored */
+    }
+
+    /* Sanitize enforces all bounds + forces auth-on-when-provisioned, so a
+       settings write can never weaken security or write an unsafe value. */
+    svc_config_sanitize(&work);
+    if (storage_save(&work) != SVC_OK) {
+        return send_status(req, "500 Internal Server Error",
+                           "{\"error\":\"persist failed\"}");
+    }
+    s_cfg = work;
+    (void)control_reload_config(&s_cfg);
+    char buf[96];
+    int n = snprintf(buf, sizeof(buf),
+                     "{\"ok\":true,\"applied\":%d,\"rejected\":%d}",
+                     applied, rejected);
+    if (n < 0 || n >= (int)sizeof(buf)) {   /* provably fits; checked for parity */
+        return httpd_resp_send_500(req);
+    }
+    ESP_LOGW(TAG, "settings updated (applied=%d rejected=%d)", applied, rejected);
+    return send_json(req, buf);
+}
+
 static esp_err_t h_ota_post(httpd_req_t *req)
 {
     if (guard_mutating(req) != ESP_OK) {
@@ -410,6 +717,7 @@ static svc_err_t register_routes(void)
         { .uri = "/api/io",        .method = HTTP_GET,  .handler = h_io_get },
         { .uri = "/api/io",        .method = HTTP_POST, .handler = h_io_post },
         { .uri = "/api/config",    .method = HTTP_GET,  .handler = h_config_get },
+        { .uri = "/api/config",    .method = HTTP_POST, .handler = h_config_post },
         { .uri = "/api/csrf",      .method = HTTP_GET,  .handler = h_csrf_get },
         { .uri = "/api/provision", .method = HTTP_POST, .handler = h_provision_post },
         { .uri = "/api/ota",       .method = HTTP_POST, .handler = h_ota_post },

@@ -14,6 +14,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <inttypes.h>
 
 static const char *TAG = "dinput";
 
@@ -21,7 +22,7 @@ static const char *TAG = "dinput";
 
 static dinput_cfg_t       s_cfg;
 static dinput_debounce_t  s_db[BOARD_DINPUT_COUNT];
-static volatile uint8_t   s_stable_mask;
+static volatile uint32_t  s_stable_mask;
 static TaskHandle_t       s_task;
 static bool               s_started;
 
@@ -57,9 +58,9 @@ static void dinput_task(void *arg)
             if (dinput_debounce_update(&s_db[ch], raw)) {
                 bool level = s_db[ch].stable;
                 if (level) {
-                    s_stable_mask |= (uint8_t)(1U << ch);
+                    s_stable_mask |= (uint32_t)(1U << ch);
                 } else {
-                    s_stable_mask &= (uint8_t)~(1U << ch);
+                    s_stable_mask &= (uint32_t)~(1U << ch);
                 }
                 svc_event_t ev = {
                     .type = EVT_DINPUT_EDGE,
@@ -86,7 +87,7 @@ svc_err_t dinput_start(const dinput_cfg_t *cfg)
         bool active = read_active(ch);
         dinput_debounce_init(&s_db[ch], ticks, active);
         if (active) {
-            s_stable_mask |= (uint8_t)(1U << ch);
+            s_stable_mask |= (uint32_t)(1U << ch);
         }
     }
 
@@ -121,7 +122,7 @@ svc_err_t dinput_start(const dinput_cfg_t *cfg)
         return ESP_ERR_NO_MEM;
     }
     s_started = true;
-    ESP_LOGI(TAG, "started (%d ch, debounce=%ums, active_low=0x%02x)",
+    ESP_LOGI(TAG, "started (%d ch, debounce=%" PRIu16 "ms, active_low=0x%08" PRIx32 ")",
              BOARD_DINPUT_COUNT, cfg->debounce_ms, cfg->active_low);
     return SVC_OK;
 }
@@ -133,7 +134,7 @@ svc_err_t dinput_get(uint8_t channel, bool *out_active)
     return SVC_OK;
 }
 
-uint8_t dinput_state_mask(void)
+uint32_t dinput_state_mask(void)
 {
     return s_stable_mask;
 }

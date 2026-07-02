@@ -76,9 +76,9 @@ svc_err_t netmgr_start(const svc_config_t *cfg)
 
 svc_err_t netmgr_enter_provisioning(void)
 {
-    s_state = NET_AP_PROVISIONING;
-    ESP_LOGI(TAG, "provisioning mode requested");
-    /* TODO(net): start SoftAP + captive config portal. */
+    ESP_LOGW(TAG, "provisioning requested but AP mode is not implemented");
+    /* TODO(net): start SoftAP + captive config portal, then publish
+       NET_AP_PROVISIONING only after the LAN/STA path is no longer exposed. */
     return SVC_ERR_NOT_IMPLEMENTED;
 }
 

@@ -20,7 +20,7 @@ extern "C" {
 /** @brief Driver configuration. */
 typedef struct {
     uint16_t debounce_ms;    /**< Stable window before a change is accepted.   */
-    uint8_t  active_low;     /**< Bitmask: bit i set => channel i is active-low.*/
+    uint32_t active_low;     /**< Bitmask: bit i set => channel i is active-low.*/
 } dinput_cfg_t;
 
 /**
@@ -44,7 +44,7 @@ svc_err_t dinput_start(const dinput_cfg_t *cfg);
 svc_err_t dinput_get(uint8_t channel, bool *out_active);
 
 /** @brief Bitmask snapshot of debounced logical-active states. */
-uint8_t dinput_state_mask(void);
+uint32_t dinput_state_mask(void);
 
 #ifdef __cplusplus
 }

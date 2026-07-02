@@ -54,7 +54,7 @@ svc_err_t relay_get(uint8_t channel, bool *out_on);
 svc_err_t relay_apply_safe(void);
 
 /** @brief Bitmask snapshot of current logical states (bit i = channel i). */
-uint8_t relay_state_mask(void);
+uint32_t relay_state_mask(void);
 
 #ifdef __cplusplus
 }

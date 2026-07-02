@@ -39,8 +39,7 @@ static svc_err_t led_init(void)
     const led_strip_config_t strip_cfg = {
         .strip_gpio_num = BOARD_GPIO_LED_STRIP,
         .max_leds = 1,
-        .led_model = LED_MODEL_WS2812,
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+        .led_pixel_format = LED_PIXEL_FORMAT_GRB,
     };
     const led_strip_rmt_config_t rmt_cfg = {
         .clk_src = RMT_CLK_SRC_DEFAULT,

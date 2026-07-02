@@ -14,6 +14,7 @@
 #include "svc_common.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#include "driver/uart.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -32,18 +32,28 @@ void svc_config_defaults(svc_config_t *cfg)
     cfg->wifi_enabled = 0;     /* standalone by default */
     cfg->eth_enabled  = 0;
 
-    for (int i = 0; i < BOARD_RELAY_COUNT; ++i) {
+    for (int i = 0; i < HAL_MAX_RELAY; ++i) {
         cfg->relay_active_high[i] = 1;
         cfg->relay_safe_on[i]     = 0;   /* de-energized = safe */
     }
 
-    cfg->din_active_low   = 0xFF;        /* opto inputs active-low */
+    cfg->din_active_low   = 0xFFFFFFFFu; /* opto/dry-contact inputs active-low */
     cfg->din_debounce_ms  = 30;
+    cfg->board_id[0]      = '\0';        /* stamped by storage from build target */
 
     cfg->presence_slave        = 1;
     cfg->presence_reg          = 0x0000;
     cfg->presence_present_min  = 1;
     cfg->presence_poll_ms      = 500;
+
+    /* v5 multi-sensor presence: one RS485 sensor by default, second disabled. */
+    cfg->presence_sensor_count = 1;
+    cfg->presence_sensor[0] = (presence_sensor_cfg_t){
+        .type = 1 /*RS485*/, .rs485_port = 0, .modbus_addr = 1,
+        .din_index = 0, .reg = 0x0000, .present_min = 1 };
+    cfg->presence_sensor[1] = (presence_sensor_cfg_t){ .type = 0 /*disabled*/ };
+    cfg->room_empty_delay_sec = 30;     /* don't drop AC/light for 30 s */
+    cfg->sensor_fault_policy  = 0;      /* HOLD: a faulted sensor never falsely empties */
 
     /* Rule 0: presence -> relay 0, 30 s linger (a sensible villa default). */
     cfg->rule[0] = (svc_rule_t){ .enabled = 1, .trigger_src = 0,
@@ -71,6 +81,7 @@ void svc_config_sanitize(svc_config_t *cfg)
     NUL_TERMINATE(cfg->wifi_ssid);
     NUL_TERMINATE(cfg->wifi_pass);
     NUL_TERMINATE(cfg->setup_password);
+    NUL_TERMINATE(cfg->board_id);
     if (cfg->device_name[0] == '\0') {
         memcpy(cfg->device_name, def.device_name, sizeof(cfg->device_name));
     }
@@ -92,10 +103,12 @@ void svc_config_sanitize(svc_config_t *cfg)
         cfg->provisioned = 0;
     }
 
-    /* 4. Relay polarity + safe state must be strict booleans. */
-    for (int i = 0; i < BOARD_RELAY_COUNT; ++i) {
+    /* 4. Relay polarity must be strict boolean. Baseline failsafe always
+          de-energizes relay outputs; persisted config must not make a safety
+          path energize unknown loads. */
+    for (int i = 0; i < HAL_MAX_RELAY; ++i) {
         cfg->relay_active_high[i] = norm_bool(cfg->relay_active_high[i]);
-        cfg->relay_safe_on[i]     = norm_bool(cfg->relay_safe_on[i]);
+        cfg->relay_safe_on[i]     = 0;
     }
 
     /* 5. Clamp timing values to safe bands. */
@@ -123,16 +136,75 @@ void svc_config_sanitize(svc_config_t *cfg)
             r->trigger_src = 0;
             r->enabled = 0;
         }
-        if (r->trigger_src == 1 && r->trigger_chan >= BOARD_DINPUT_COUNT) {
+        if (r->trigger_src == 1 && r->trigger_chan >= HAL_MAX_DIN) {
             r->enabled = 0;
         }
-        if (r->target_relay >= BOARD_RELAY_COUNT) {
+        if (r->target_relay >= HAL_MAX_RELAY) {
             r->enabled = 0;
         }
         r->off_delay_s = clamp_u16(r->off_delay_s, 0, SVC_OFF_DELAY_MAX_S > 0xFFFF
                                                        ? 0xFFFF : SVC_OFF_DELAY_MAX_S);
+        /* v3 fields: action is ON unless explicitly OFF; dwell clamped. */
+        r->action = (r->action == SVC_RULE_ACTION_OFF) ? SVC_RULE_ACTION_OFF
+                                                       : SVC_RULE_ACTION_ON;
+        r->for_ms = clamp_u16(r->for_ms, 0, SVC_RULE_FOR_MS_MAX);
+        r->_reserved = 0;
+    }
+
+    /* 8. Dry-contact presence fallback (v3): normalize and ensure the chosen
+          channel exists, else disable fallback rather than read a bad channel. */
+    cfg->fallback_din_enabled = norm_bool(cfg->fallback_din_enabled);
+    if (cfg->fallback_din_chan >= HAL_MAX_DIN) {
+        cfg->fallback_din_chan = 0;
+        cfg->fallback_din_enabled = 0;
+    }
+
+    /* 9. Multi-sensor presence (v5): bound counts, types, and per-sensor fields;
+          an invalid sensor is DISABLED rather than read from a bad channel/addr. */
+    if (cfg->presence_sensor_count > SVC_PRESENCE_MAX_SENSORS) {
+        cfg->presence_sensor_count = SVC_PRESENCE_MAX_SENSORS;
+    }
+    for (int i = 0; i < SVC_PRESENCE_MAX_SENSORS; ++i) {
+        presence_sensor_cfg_t *s = &cfg->presence_sensor[i];
+        if (s->type > 2) {                 /* unknown type -> disabled */
+            s->type = 0;
+        }
+        if (s->type == 1) {                /* RS485: valid port + slave addr */
+            if (s->rs485_port >= HAL_MAX_RS485) s->type = 0;
+            if (s->modbus_addr < SVC_MODBUS_SLAVE_MIN ||
+                s->modbus_addr > SVC_MODBUS_SLAVE_MAX) s->type = 0;
+        } else if (s->type == 2) {         /* dry contact: valid DI channel */
+            if (s->din_index >= HAL_MAX_DIN) s->type = 0;
+        }
+    }
+    cfg->room_empty_delay_sec = clamp_u16(cfg->room_empty_delay_sec, 0,
+                                          SVC_ROOM_EMPTY_DELAY_MAX);
+    if (cfg->sensor_fault_policy > 2) {
+        cfg->sensor_fault_policy = 0;      /* default HOLD (never false-empties) */
     }
 
     /* Keep the version stamp current. */
     cfg->version = SVC_CONFIG_VERSION;
+}
+
+bool svc_config_board_matches(const svc_config_t *cfg, const char *expected_board_id)
+{
+    if (cfg == NULL || expected_board_id == NULL) {
+        return false;
+    }
+    /* An empty/unbranded tag matches: the caller will stamp it. A populated tag
+       that differs is a wrong-board config and must be rejected. */
+    if (cfg->board_id[0] == '\0') {
+        return true;
+    }
+    return strncmp(cfg->board_id, expected_board_id, sizeof(cfg->board_id)) == 0;
+}
+
+void svc_config_set_board_id(svc_config_t *cfg, const char *board_id)
+{
+    if (cfg == NULL || board_id == NULL) {
+        return;
+    }
+    strncpy(cfg->board_id, board_id, sizeof(cfg->board_id) - 1);
+    cfg->board_id[sizeof(cfg->board_id) - 1] = '\0';
 }
